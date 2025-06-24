@@ -244,7 +244,8 @@ def main_loop():
             # This is the final step. If the worker crashes before this,
             # the job ID remains in the processing queue for recovery on next start.
             redis_client.lrem(processing_queue_key, 1, job_id)
-
+            
+            recover_interrupted_jobs()
         except redis.exceptions.RedisError as e:
             logger.error(f"Redis error: {e}. Will retry connection in 5 seconds.", exc_info=True)
             time.sleep(5)
