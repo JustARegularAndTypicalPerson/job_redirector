@@ -241,8 +241,8 @@ def flush_and_close_log_handlers():
             handler.flush()
         except Exception:
             pass
-        # Do not close the console handler to keep console output alive
-        if not isinstance(handler, logging.StreamHandler):
+        # Always flush, but only close non-console handlers
+        if not (isinstance(handler, logging.StreamHandler) and getattr(handler, 'stream', None) in (None, getattr(__import__('sys'), 'stdout', None), getattr(__import__('sys'), 'stderr', None))):
             try:
                 handler.close()
             except Exception:

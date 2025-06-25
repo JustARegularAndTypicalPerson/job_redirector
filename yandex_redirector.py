@@ -1,24 +1,41 @@
 import logging
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-def run_yandex_operation(job_id: str, job_data: dict) -> dict:
+def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
     """
     Handles Yandex job operations based on operation_type.
+    Returns a dict with status, result, and error_message fields for consistency.
     """
     operation_type = job_data.get("operation_type")
-    
     if not operation_type:
-        raise ValueError("Job data must contain 'operation_type' key")
-    
-    logger.info(f"[Yandex] Running operation '{operation_type}' for job {job_id}")
-    
-    # Placeholder: Add logic for each operation_type
-    if operation_type == "search":
-        # TODO: Implement search operation
-        return {"status": "search placeholder"}
-    elif operation_type == "download":
-        # TODO: Implement download operation
-        return {"status": "download placeholder"}
-    else:
-        raise ValueError(f"Yandex unknown operation '{operation_type}' for job {job_id}")
+        logger.error("Job data missing 'operation_type'", extra={"job_id": job_id})
+        return {
+            "status": "failed",
+            "result": None,
+            "error_message": "Job data must contain 'operation_type' key"
+        }
+    try:
+        logger.info(f"[Yandex] Running operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
+        # Placeholder: Add logic for each operation_type
+        if operation_type == "search":
+            # TODO: Implement search operation
+            return {"status": "success", "result": "search placeholder", "error_message": ""}
+        elif operation_type == "download":
+            # TODO: Implement download operation
+            return {"status": "success", "result": "download placeholder", "error_message": ""}
+        else:
+            logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
+            return {
+                "status": "failed",
+                "result": None,
+                "error_message": f"Yandex unknown operation '{operation_type}' for job {job_id}"
+            }
+    except Exception as e:
+        logger.exception(f"Exception in Yandex operation for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
+        return {
+            "status": "failed",
+            "result": None,
+            "error_message": str(e)
+        }
