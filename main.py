@@ -1,3 +1,4 @@
+# main.py
 import os
 import time
 import json
@@ -78,6 +79,7 @@ redis_client = None
 try:
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()
+    print(f"[{WORKER_ID}] Successfully connected to Redis.")
 except redis.exceptions.ConnectionError as e:
     logging.basicConfig()
     logging.critical(f"CRITICAL: Could not connect to Redis: {e}")
@@ -176,7 +178,7 @@ def main_loop():
                 continue
 
             redis_client.hset(job_hash_key, mapping={
-                "status": "running",
+                "status": "running", # Changed from 'in_progress'
                 "worker_id": WORKER_ID,
                 "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
             })
