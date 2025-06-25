@@ -126,11 +126,16 @@ def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[st
     logger.info(f"Executing job {job_id}: {job_data.get('scraper')} - {job_data.get('operation_type')}", extra={'job_id': job_id})
     time.sleep(random.randint(2, 5))
     try:
-        util_result: str = run_job(job_id, job_data)
+        util_result: dict = run_job(job_id, job_data)
+
+        if not util_result:
+            raise ValueError("Job execution returned no result.")
+        
         result: dict = {
             "status": "success",
             "data": util_result
         }
+        
         return json.dumps(result), None
     except Exception as e:
         result: dict = {
