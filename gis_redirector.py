@@ -1,5 +1,7 @@
 import logging
 
+logger = logging.getLogger(__name__)
+
 def run_gis_operation(job_id: str, job_data: dict) -> dict:
     """
     Handles GIS job operations based on operation_type.
@@ -7,7 +9,7 @@ def run_gis_operation(job_id: str, job_data: dict) -> dict:
     operation_type = job_data.get("operation_type")
     if not operation_type:
         raise ValueError("Job data must contain 'operation_type' key")
-    logging.info(f"[GIS] Running operation '{operation_type}' for job {job_id}")
+    logger.info(f"[GIS] Running operation '{operation_type}' for job {job_id}")
     # Placeholder: Add logic for each operation_type
     if operation_type == "map":
         # TODO: Implement map operation

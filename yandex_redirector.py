@@ -1,5 +1,7 @@
 import logging
 
+logger = logging.getLogger(__name__)
+
 def run_yandex_operation(job_id: str, job_data: dict) -> dict:
     """
     Handles Yandex job operations based on operation_type.
@@ -9,8 +11,8 @@ def run_yandex_operation(job_id: str, job_data: dict) -> dict:
     if not operation_type:
         raise ValueError("Job data must contain 'operation_type' key")
     
-    logging.info(f"[Yandex] Running operation '{operation_type}' for job {job_id}")
-
+    logger.info(f"[Yandex] Running operation '{operation_type}' for job {job_id}")
+    
     # Placeholder: Add logic for each operation_type
     if operation_type == "search":
         # TODO: Implement search operation

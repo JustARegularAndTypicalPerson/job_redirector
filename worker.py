@@ -7,6 +7,8 @@ import datetime
 import random
 import logging
 import redis
+import signal
+import atexit
 from typing import Tuple, Optional
 from job_runner import run_job
 
@@ -14,9 +16,10 @@ from job_runner import run_job
 try:
     from logtail import LogtailHandler
 
-    LOGTAIL_TOKEN = os.environ.get("LOGTAIL_TOKEN")
+    LOGTAIL_TOKEN = os.environ.get("LOGTAIL_TOKEN", "9MH3pdR6MXAidoMv7KHJT7b9")
+    INGESTION_HOST = os.environ.get("INGESTION_HOST", "https://s1355760.eu-nbg-2.betterstackdata.com")
     if LOGTAIL_TOKEN:
-        logtail_handler = LogtailHandler(source_token=LOGTAIL_TOKEN)
+        logtail_handler = LogtailHandler(source_token=LOGTAIL_TOKEN,host=INGESTION_HOST)
         BETTERSTACK_HANDLER = logtail_handler
     else:
         BETTERSTACK_HANDLER = None
@@ -47,28 +50,34 @@ class RedisStreamHandler(logging.Handler):
             self.handleError(record)
 
 WORKER_ID_FILE = ".worker_id"
-FORBIDDEN_WORKERS_SET = "forbidden:workers"  # <--- Add this constant
+FORBIDDEN_WORKERS_SET = "forbidden:workers"
 
-def get_or_create_worker_id() -> str:
-    if os.path.exists(WORKER_ID_FILE):
-        try:
-            with open(WORKER_ID_FILE, "r") as f:
-                worker_id = f.read().strip()
-                if worker_id:
-                    print(f"Reusing existing worker ID: {worker_id}")
-                    return worker_id
-        except IOError as e:
-            print(f"WARNING: Could not read worker ID file '{WORKER_ID_FILE}': {e}. A new ID will be generated.")
-    new_worker_id = f"worker-{uuid.uuid4()}"
-    print(f"Generating new worker ID: {new_worker_id}")
+# Generate or get worker ID early for logging
+if os.path.exists(WORKER_ID_FILE):
     try:
-        with open(WORKER_ID_FILE, "w") as f:
-            f.write(new_worker_id)
-        print(f"Saved new worker ID to '{WORKER_ID_FILE}' for future runs.")
-    except IOError as e:
-        print(f"WARNING: Could not save worker ID to file '{WORKER_ID_FILE}': {e}")
-        print(f"Using ephemeral worker ID for this session only.")
-    return new_worker_id
+        with open(WORKER_ID_FILE, "r") as f:
+            worker_id = f.read().strip()
+            if worker_id:
+                WORKER_ID = worker_id
+            else:
+                WORKER_ID = f"worker-{uuid.uuid4()}"
+    except IOError:
+        WORKER_ID = f"worker-{uuid.uuid4()}"
+else:
+    WORKER_ID = f"worker-{uuid.uuid4()}"
+
+# Set up root logger and attach handlers
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+if root_logger.hasHandlers():
+    root_logger.handlers.clear()
+console_handler = logging.StreamHandler()
+console_formatter = logging.Formatter(f'%(asctime)s [{WORKER_ID}] %(levelname)s: %(message)s')
+console_handler.setFormatter(console_formatter)
+root_logger.addHandler(console_handler)
+
+# Use module-level logger for this file
+logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
 JOB_QUEUE_KEY = "jobs:queue"
@@ -76,36 +85,27 @@ JOB_HASH_PREFIX = "job:"
 DEAD_LETTER_QUEUE_KEY = "jobs:dead-letter"
 PROCESSING_QUEUE_PREFIX = "jobs:processing:"
 LOG_STREAM_KEY = "logs:stream"
-WORKER_ID = get_or_create_worker_id()
 QUEUE_TIMEOUT = int(os.environ.get("QUEUE_TIMEOUT", 0))
 
+# After WORKER_ID is set, continue with Redis and other setup
 redis_client = None
 try:
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     redis_client.ping()
     print(f"[{WORKER_ID}] Successfully connected to Redis.")
 except redis.exceptions.ConnectionError as e:
-    logging.basicConfig()
     logging.critical(f"CRITICAL: Could not connect to Redis: {e}")
     exit(1)
 
-logger = logging.getLogger("worker")
-logger.setLevel(logging.INFO)
-logger.propagate = False
-if logger.hasHandlers():
-    logger.handlers.clear()
-console_handler = logging.StreamHandler()
-console_formatter = logging.Formatter(f'%(asctime)s [{WORKER_ID}] %(levelname)s: %(message)s')
-console_handler.setFormatter(console_formatter)
-logger.addHandler(console_handler)
+# Add Redis and BetterStack handlers after redis_client is available
 redis_handler = RedisStreamHandler(redis_client, LOG_STREAM_KEY, WORKER_ID)
-logger.addHandler(redis_handler)
+root_logger.addHandler(redis_handler)
 if BETTERSTACK_HANDLER:
-    logger.addHandler(BETTERSTACK_HANDLER)
-    logger.info("BetterStack logging enabled.")
+    root_logger.addHandler(BETTERSTACK_HANDLER)
+    root_logger.info("BetterStack logging enabled.")
 else:
-    logger.info("BetterStack logging not enabled. Set LOGTAIL_TOKEN env var and install logtail.")
-logger.info("Successfully connected to Redis.")
+    root_logger.info("BetterStack logging not enabled. Set LOGTAIL_TOKEN env var and install logtail.")
+root_logger.info("Successfully connected to Redis.")
 
 def is_worker_forbidden() -> bool:
     """Check if this worker is forbidden from processing jobs."""
@@ -235,6 +235,36 @@ def main_loop() -> None:
                     logger.critical(f"Could not move job {job_id} to dead-letter queue: {redis_err}", exc_info=True, extra={'job_id': job_id})
             time.sleep(5)
 
+def flush_and_close_log_handlers():
+    for handler in root_logger.handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+        # Do not close the console handler to keep console output alive
+        if not isinstance(handler, logging.StreamHandler):
+            try:
+                handler.close()
+            except Exception:
+                pass
+
+# Log on normal exit
+atexit.register(lambda: root_logger.critical(f"Worker {WORKER_ID} exiting (atexit)."))
+atexit.register(flush_and_close_log_handlers)
+
+def handle_sigterm(signum, frame):
+    root_logger.critical(f"Worker {WORKER_ID} received signal {signum}, shutting down.")
+    flush_and_close_log_handlers()
+    exit(0)
+
+signal.signal(signal.SIGTERM, handle_sigterm)
+signal.signal(signal.SIGINT, handle_sigterm)
+
 if __name__ == "__main__":
-    recover_interrupted_jobs()
-    main_loop()
+    try:
+        recover_interrupted_jobs()
+        main_loop()
+    except Exception as e:
+        root_logger.critical(f"Worker {WORKER_ID} crashed: {e}", exc_info=True)
+        flush_and_close_log_handlers()
+        raise
