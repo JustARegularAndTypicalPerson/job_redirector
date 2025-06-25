@@ -8,15 +8,18 @@ import random
 import logging
 import redis
 from typing import Tuple, Optional
-from job_runner import run_job, utilize_job_request as request_utilizer_utilize_job_request
+from job_runner import run_job
 
 # --- BetterStack Logging Handler ---
 try:
     from logtail import LogtailHandler
 
-    LOGTAIL_TOKEN = os.environ.get("LOGTAIL_TOKEN", "your-logtail-source-token")
-    logtail_handler = LogtailHandler(source_token=LOGTAIL_TOKEN)
-    BETTERSTACK_HANDLER = logtail_handler
+    LOGTAIL_TOKEN = os.environ.get("LOGTAIL_TOKEN")
+    if LOGTAIL_TOKEN:
+        logtail_handler = LogtailHandler(source_token=LOGTAIL_TOKEN)
+        BETTERSTACK_HANDLER = logtail_handler
+    else:
+        BETTERSTACK_HANDLER = None
 except ImportError:
     BETTERSTACK_HANDLER = None
 
@@ -74,7 +77,7 @@ DEAD_LETTER_QUEUE_KEY = "jobs:dead-letter"
 PROCESSING_QUEUE_PREFIX = "jobs:processing:"
 LOG_STREAM_KEY = "logs:stream"
 WORKER_ID = get_or_create_worker_id()
-QUEUE_TIMEOUT = 0
+QUEUE_TIMEOUT = int(os.environ.get("QUEUE_TIMEOUT", 0))
 
 redis_client = None
 try:
@@ -95,15 +98,13 @@ console_handler = logging.StreamHandler()
 console_formatter = logging.Formatter(f'%(asctime)s [{WORKER_ID}] %(levelname)s: %(message)s')
 console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
-# 2. Custom Handler for sending logs to the Redis Stream
 redis_handler = RedisStreamHandler(redis_client, LOG_STREAM_KEY, WORKER_ID)
 logger.addHandler(redis_handler)
-# 3. Optional: BetterStack Handler
-if 'BETTERSTACK_HANDLER' in globals() and BETTERSTACK_HANDLER:
+if BETTERSTACK_HANDLER:
     logger.addHandler(BETTERSTACK_HANDLER)
     logger.info("BetterStack logging enabled.")
 else:
-    logger.info("BetterStack logging not enabled. Set BETTERSTACK_TOKEN env var and install betterstack-logs.")
+    logger.info("BetterStack logging not enabled. Set LOGTAIL_TOKEN env var and install logtail.")
 logger.info("Successfully connected to Redis.")
 
 def is_worker_forbidden() -> bool:
@@ -124,7 +125,6 @@ def recover_interrupted_jobs() -> None:
 
 def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[str]]:
     logger.info(f"Executing job {job_id}: {job_data.get('scraper')} - {job_data.get('operation_type')}", extra={'job_id': job_id})
-    time.sleep(random.randint(2, 5))
     try:
         util_result: dict = run_job(job_id, job_data)
 
@@ -138,6 +138,7 @@ def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[st
         
         return json.dumps(result), None
     except Exception as e:
+        logger.exception(f"Job {job_id} failed: {e}", extra={'job_id': job_id})
         result: dict = {
             "status": "failed",
             "data": util_result if 'util_result' in locals() else None,
