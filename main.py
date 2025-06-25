@@ -8,6 +8,7 @@ import random
 import logging
 import redis
 from typing import Tuple, Optional
+from job_runner import run_job, utilize_job_request as request_utilizer_utilize_job_request
 
 # --- BetterStack Logging Handler ---
 try:
@@ -109,32 +110,39 @@ def is_worker_forbidden() -> bool:
     """Check if this worker is forbidden from processing jobs."""
     return redis_client.sismember(FORBIDDEN_WORKERS_SET, WORKER_ID)
 
-def recover_interrupted_jobs():
-    processing_queue_key = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
+
+def recover_interrupted_jobs() -> None:
+    processing_queue_key: str = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
     if redis_client.llen(processing_queue_key) == 0:
         logger.info("No interrupted jobs to recover.")
         return
     logger.warning(f"Found interrupted job(s) in {processing_queue_key}. Re-queueing...")
-    while job_id := redis_client.rpoplpush(processing_queue_key, JOB_QUEUE_KEY):
+    while (job_id := redis_client.rpoplpush(processing_queue_key, JOB_QUEUE_KEY)):
         logger.info(f"Re-queued job {job_id}.", extra={'job_id': job_id})
     logger.warning("Recovery complete.")
+
 
 def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[str]]:
     logger.info(f"Executing job {job_id}: {job_data.get('scraper')} - {job_data.get('operation_type')}", extra={'job_id': job_id})
     time.sleep(random.randint(2, 5))
-    if random.random() < 0.9:
-        result = {
+    try:
+        util_result: str = run_job(job_id, job_data)
+        result: dict = {
             "status": "success",
-            "message": f"Scraped data for target '{job_data['target_id']}'",
-            "items_found": random.randint(10, 100)
+            "data": util_result
         }
         return json.dumps(result), None
-    else:
-        error_message = "Failed to connect to target website (simulated error)."
-        return None, error_message
+    except Exception as e:
+        result: dict = {
+            "status": "failed",
+            "data": util_result if 'util_result' in locals() else None,
+            "error_message": str(e)
+        }
+        return json.dumps(result), str(e)
 
-def main_loop():
-    processing_queue_key = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
+
+def main_loop() -> None:
+    processing_queue_key: str = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
     logger.info(f"Worker started. Listening for jobs on '{JOB_QUEUE_KEY}'...")
     while True:
         # --- Check if worker is forbidden ---
