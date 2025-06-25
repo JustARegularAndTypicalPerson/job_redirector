@@ -1,0 +1,4 @@
+redis
+supabase
+python-dotenv
+logtail-python
