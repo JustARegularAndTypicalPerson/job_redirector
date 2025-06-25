@@ -1,3 +1,13 @@
-*/
-
-!some_file.py
+# Ignore Python cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.bak
+.DS_Store
+Thumbs.db
+.env
+.venv
+*.log
