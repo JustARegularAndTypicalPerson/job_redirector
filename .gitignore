@@ -1,1 +1,9 @@
-.worker_id
+# Ignore everything
+/*
+
+# But not these files (unignore)
+!gis_redirector.py
+!job_runner.py
+!requirements.txt
+!worker.py
+!yandex_redirector.py
