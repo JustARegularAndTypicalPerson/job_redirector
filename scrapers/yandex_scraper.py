@@ -23,12 +23,6 @@ BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
 if not BROWSER_PATH:
     raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
 
-# Define a directory for persistent context.
-_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_persistent_context_dir = os.path.abspath(
-    os.path.join(_project_root, "organizations_files")
-)
-
 # Setup logging
 logger = logging.getLogger(__name__)
 
