@@ -28,7 +28,7 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             
             result = get_statistics(job_data)
             
-            return {"status": "success", "result": result, "error_message": ""}
+            return {'status': 'success', 'result': result, 'error_message': ''}
         
         elif operation_type == "reviews_data":
             from scrapers.gis_scraper import get_reviews_data
@@ -44,16 +44,8 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
-            return {
-                "status": "failed",
-                "result": None,
-                "error_message": f"GIS unknown operation '{operation_type}' for job {job_id}"
-            }
-    
+
+            raise ValueError(f"Unknown operation type: {operation_type}")    
     except Exception as e:
         logger.exception(f"Exception in GIS operation for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": str(e)
-        }
+        raise e

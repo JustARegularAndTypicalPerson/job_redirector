@@ -74,17 +74,22 @@ def handle_ads_by_clicking(page: Page) -> bool:
     """
     close_selectors = [
         "button[aria-label='Close']", "button[aria-label*='close']",
-        "button:has-text('Закрыть')", "button:has-text('X')",
-        "div[class*='close'][role='button']", "div[class*='popup-close']",
-        "span[aria-label='Close']", "a:has-text('Пропустить')",
+        "button:has-text('Закрыть')", "button:has-text('X')", "span[aria-label='Close']",
+        "button:has-text('Закрыть')", "button:has-text('X')", "svg[aria-hidden='true']",
+        "div[data-keyword='close']",  # This is the most reliable for your example
+        "div[class*='close'][role='button']", "div[class*='popup__close']",
+        "div[class*='content__close']", # Corrected from div.content__close
+        "div[class*='content__close']",  # Corrected from div.content__close
+        "a:has-text('Пропустить')",
         "text=No Thanks", "text=Close",
         "div[class*='modal-close']", "div[data-keyword='close']", "div.wat-kit-image",
         "div.content__close"
     ]
+
     for sel in close_selectors:
         try:
             page.wait_for_selector(sel, timeout=100) # Short timeout for quick check
-            page.locator(sel).click(timeout=500) # Short click timeout
+            page.locator(sel).click(timeout=200) # Short click timeout
             logger.info(f"Closed pop-up with selector: {sel}")
             return True
         except PlaywrightError: # More specific exception
@@ -548,15 +553,14 @@ def download_and_process_table(page: Page, digits: int, period: Optional[str] = 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 # Сохраняем загруженный файл во временное место.
                 download.save_as(tmp.name)
-                temp_file_path = tmp.name # Сохраняем путь к временному файлу.
-            
+                temp_file_path = tmp.name # Сохраняем путь к временному файлу
             # Читаем XLSX файл с помощью pandas. `header=None` указывает, что у файла нет заголовка,
             # и мы будем обращаться к данным по индексам строк/столбцов.
             df = pd.read_excel(temp_file_path, header=None, engine='openpyxl')
             logger.info(f"XLSX file successfully downloaded and read for company {digits}.")
         except Exception as e:
             logger.error(f"Error processing XLSX file for {digits}: {e}")
-            return None # Возвращаем None в случае ошибки чтения/обработки файла.
+            raise  # Reraise critical exception
         finally:
             # Блок finally гарантирует, что временный файл будет удален,
             # даже если произошла ошибка.
@@ -564,9 +568,12 @@ def download_and_process_table(page: Page, digits: int, period: Optional[str] = 
                 try:
                     os.unlink(temp_file_path)
                     logger.info(f"Temporary file {temp_file_path} deleted.")
+                except ImportError as e:
+                    logger.error(f"Error deleting temporary file {temp_file_path}: {e}")
+                    raise
                 except Exception as e:
                     logger.warning(f"Could not delete temporary file {temp_file_path}: {e}")
-                    pass # Игнорируем ошибки при удалении файла.
+                    pass
 
         # Парсинг данных из DataFrame
         # Извлекаем сырое название компании из ячейки (1, 1) (вторая строка, второй столбец)

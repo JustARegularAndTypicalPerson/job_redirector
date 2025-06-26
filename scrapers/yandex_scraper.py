@@ -1,10 +1,9 @@
 from typing import Any, Dict, Tuple, List
-from werkzeug.exceptions import HTTPException, NotFound, BadRequest, InternalServerError
+from werkzeug.exceptions import NotFound, BadRequest
 from playwright.sync_api import Page, Locator, sync_playwright, BrowserContext
 import regex  # Используем модуль regex вместо re
 from datetime import datetime
 import os
-import atexit
 import logging
 from unidecode import unidecode
 import re

@@ -7,3 +7,4 @@ playwright
 unidecode
 regex
 werkzeug
+openpyxl

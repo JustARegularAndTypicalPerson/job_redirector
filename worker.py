@@ -9,6 +9,7 @@ import logging
 import redis
 import signal
 import atexit
+import threading
 from typing import Tuple, Optional
 from job_runner import run_job
 
@@ -107,6 +108,26 @@ else:
     root_logger.info("BetterStack logging not enabled. Set LOGTAIL_TOKEN env var and install logtail.")
 root_logger.info("Successfully connected to Redis.")
 
+# --- Job ID Context Propagation ---
+_job_id_local = threading.local()
+
+def set_job_id(job_id: str):
+    _job_id_local.job_id = job_id
+
+def get_job_id() -> str:
+    return getattr(_job_id_local, 'job_id', None)
+
+class JobIdLogFilter(logging.Filter):
+    def filter(self, record):
+        # If job_id is not set in the record, try to get it from thread-local
+        if not hasattr(record, 'job_id') or record.job_id is None:
+            record.job_id = get_job_id() or 'N/A'
+        return True
+
+# Add the filter to all handlers
+for handler in root_logger.handlers:
+    handler.addFilter(JobIdLogFilter())
+
 def is_worker_forbidden() -> bool:
     """Check if this worker is forbidden from processing jobs."""
     return redis_client.sismember(FORBIDDEN_WORKERS_SET, WORKER_ID)
@@ -119,12 +140,13 @@ def recover_interrupted_jobs() -> None:
         return
     logger.warning(f"Found interrupted job(s) in {processing_queue_key}. Re-queueing...")
     while (job_id := redis_client.rpoplpush(processing_queue_key, JOB_QUEUE_KEY)):
-        logger.info(f"Re-queued job {job_id}.", extra={'job_id': job_id})
+        logger.info(f"Re-queued job {job_id}.")
     logger.warning("Recovery complete.")
 
 
 def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[str]]:
-    logger.info(f"Executing job {job_id}: {job_data.get('scraper')} - {job_data.get('operation_type')}", extra={'job_id': job_id})
+    set_job_id(job_id)  # Set job_id for log context
+    logger.info(f"Executing job {job_id}: {job_data.get('scraper')} - {job_data.get('operation_type')}")
     try:
         util_result: dict = run_job(job_id, job_data)
 
@@ -133,13 +155,15 @@ def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[st
         
         return json.dumps(util_result), None
     except Exception as e:
-        logger.exception(f"Job {job_id} failed: {e}", extra={'job_id': job_id})
+        logger.exception(f"Job {job_id} failed: {e}")
         result: dict = {
             "status": "failed",
             "data": util_result if 'util_result' in locals() else None,
             "error_message": str(e)
         }
-        return json.dumps(result), str(e)
+        return json.dumps(result, ensure_ascii=False), str(e)
+    finally:
+        set_job_id(None)  # Clear job_id after job
 
 
 def main_loop() -> None:
@@ -159,17 +183,17 @@ def main_loop() -> None:
                 continue
 
             job_hash_key = f"{JOB_HASH_PREFIX}{job_id}"
-            logger.info(f"Received job {job_id}", extra={'job_id': job_id})
+            logger.info(f"Received job {job_id}")
 
             job_data = redis_client.hgetall(job_hash_key)
             if not job_data:
-                logger.error(f"Could not find job data for {job_id}. Skipping.", extra={'job_id': job_id})
+                logger.error(f"Could not find job data for {job_id}. Skipping.")
                 redis_client.lrem(processing_queue_key, 1, job_id)
                 continue
 
             # --- Check for cancellation before running ---
             if job_data.get("status") == "cancelled":
-                logger.info(f"Job {job_id} was cancelled before execution. Marking as cancelled.", extra={'job_id': job_id})
+                logger.info(f"Job {job_id} was cancelled before execution. Marking as cancelled.")
                 redis_client.hset(job_hash_key, mapping={
                     "status": "cancelled",
                     "worker_id": WORKER_ID,
@@ -182,7 +206,7 @@ def main_loop() -> None:
 
             # Safety check: Don't re-process a completed/failed/cancelled job if it somehow re-appears in the queue.
             if job_data.get("status") in ["completed", "failed", "cancelled"]:
-                logger.warning(f"Job {job_id} has status '{job_data.get('status')}' but was in queue. Skipping.", extra={'job_id': job_id})
+                logger.warning(f"Job {job_id} has status '{job_data.get('status')}' but was in queue. Skipping.")
                 redis_client.lrem(processing_queue_key, 1, job_id)
                 continue
 
@@ -203,7 +227,7 @@ def main_loop() -> None:
                 completion_payload.update({"status": "completed", "result_data": result_data, "error_message": ""})
 
             redis_client.hset(job_hash_key, mapping=completion_payload)
-            logger.info(f"Finished job {job_id} with status: {completion_payload['status']}", extra={'job_id': job_id})
+            logger.info(f"Finished job {job_id} with status: {completion_payload['status']}")
             redis_client.lrem(processing_queue_key, 1, job_id)
             
             recover_interrupted_jobs()
@@ -211,9 +235,9 @@ def main_loop() -> None:
             logger.error(f"Redis error: {e}. Will retry connection in 5 seconds.", exc_info=True)
             time.sleep(5)
         except Exception as e:
-            logger.critical(f"An unhandled exception occurred while processing job {job_id}: {e}", exc_info=True, extra={'job_id': job_id})
+            logger.critical(f"An unhandled exception occurred while processing job {job_id}: {e}", exc_info=True)
             if job_id:
-                logger.warning(f"Moving job {job_id} to dead-letter queue.", extra={'job_id': job_id})
+                logger.warning(f"Moving job {job_id} to dead-letter queue.")
                 try:
                     job_hash_key = f"{JOB_HASH_PREFIX}{job_id}"
                     error_payload = {
@@ -227,7 +251,7 @@ def main_loop() -> None:
                         pipe.execute()
                     redis_client.lrem(processing_queue_key, 1, job_id)
                 except redis.exceptions.RedisError as redis_err:
-                    logger.critical(f"Could not move job {job_id} to dead-letter queue: {redis_err}", exc_info=True, extra={'job_id': job_id})
+                    logger.critical(f"Could not move job {job_id} to dead-letter queue: {redis_err}", exc_info=True)
             time.sleep(5)
 
 def flush_and_close_log_handlers():
