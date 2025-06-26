@@ -2,3 +2,8 @@ redis
 supabase
 python-dotenv
 logtail-python
+pandas
+playwright
+unidecode
+regex
+werkzeug

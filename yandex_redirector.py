@@ -24,15 +24,23 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         # Placeholder: Add logic for each operation_type
         
         if operation_type == "statistics":
-            
-            # TODO: Implement statistics operation
-            return {"status": "success", "result": "statistics placeholder", "error_message": ""}
+            from scrapers.yandex_scraper import get_statistics
+
+            result = get_statistics(job_data)
+
+            return {"status": "success", "result": result, "error_message": ""}
         
         elif operation_type == "reviews":
-        
-            # TODO: Implement search operation
-            return {"status": "success", "result": "search placeholder", "error_message": ""}
-        
+            from scrapers.yandex_scraper import get_reviews
+
+            result = get_reviews(job_data)            
+
+        elif operation_type == "competitors":
+            from scrapers.yandex_scraper import get_competitors
+
+            result = get_competitors(job_data)
+
+            return {"status": "success", "result": result, "error_message": ""}
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             

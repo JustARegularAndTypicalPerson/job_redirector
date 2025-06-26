@@ -23,14 +23,25 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         logger.info(f"[GIS] Running operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
         # Placeholder: Add logic for each operation_type
     
-        if operation_type == "map":
-            # TODO: Implement map operation
-            return {"status": "success", "result": "map placeholder", "error_message": ""}
-    
-        elif operation_type == "analyze":
-            # TODO: Implement analyze operation
-            return {"status": "success", "result": "analyze placeholder", "error_message": ""}
-    
+        if operation_type == "statistics":
+            from scrapers.gis_scraper import get_statistics
+            
+            result = get_statistics(job_data)
+            
+            return {"status": "success", "result": result, "error_message": ""}
+        
+        elif operation_type == "reviews_data":
+            from scrapers.gis_scraper import get_reviews_data
+            
+            result = get_reviews_data(job_data)
+            return {"status": "success", "result": result, "error_message": ""}
+        
+        elif operation_type == "reviews":
+            from scrapers.gis_scraper import get_reviews
+            
+            result = get_reviews(job_data)
+            return {"status": "success", "result": result, "error_message": ""}
+        
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             return {
