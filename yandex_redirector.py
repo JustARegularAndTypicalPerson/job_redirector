@@ -41,13 +41,42 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             result = get_competitors(job_data)
 
             return {"status": "success", "result": result, "error_message": ""}
+        
+        elif operation_type == "unreaded_reviews":
+            from scrapers.yandex_scraper import get_unreaded_reviews
+
+            result = get_unreaded_reviews(job_data)
+
+        elif operation_type == "write_answer":
+            from scrapers.yandex_scraper import write_answer
+
+            result = write_answer(job_data)
+
+        elif operation_type == "complain_about_a_review":
+            from scrapers.yandex_scraper import complain_about_a_review
+
+            result = complain_about_a_review(job_data)
+
+        elif operation_type == "mark_as_readed":
+            from scrapers.yandex_scraper import mark_as_readed
+
+            result = mark_as_readed(job_data)
+
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             
-            raise ValueError(f"Unknown operation type: {operation_type}")
+            return {
+                "status": "failed",
+                "result": None,
+                "error_message": f"Yandex unknown operation '{operation_type}' for job {job_id}"
+            }
     
     except Exception as e:
     
         logger.exception(f"Exception in Yandex operation for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
     
-        raise e
+        return {
+            "status": "failed",
+            "result": None,
+            "error_message": str(e)
+        }
