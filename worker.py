@@ -131,12 +131,7 @@ def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[st
         if not util_result:
             raise ValueError("Job execution returned no result.")
         
-        result: dict = {
-            "status": "success",
-            "data": util_result
-        }
-        
-        return json.dumps(result), None
+        return json.dumps(util_result), None
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}", extra={'job_id': job_id})
         result: dict = {

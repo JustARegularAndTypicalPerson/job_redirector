@@ -44,18 +44,10 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             
-            return {
-                "status": "failed",
-                "result": None,
-                "error_message": f"Yandex unknown operation '{operation_type}' for job {job_id}"
-            }
+            raise ValueError(f"Unknown operation type: {operation_type}")
     
     except Exception as e:
     
         logger.exception(f"Exception in Yandex operation for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
     
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": str(e)
-        }
+        raise e

@@ -9,11 +9,7 @@ def run_job(job_id: str, job_data: dict) -> Dict[str, Any]:
     job_type = job_data.get("scraper_type")
     if not job_type:
         logger.error("Job data missing 'scraper_type'", extra={"job_id": job_id})
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": "Job data must contain 'scraper_type' key"
-        }
+        raise ValueError("Job data must contain 'scraper_type'")
     try:
         if job_type == "yandex":
             logger.info(f"Running Yandex job with id: {job_id}", extra={"job_id": job_id, "scraper_type": job_type})
@@ -30,8 +26,4 @@ def run_job(job_id: str, job_data: dict) -> Dict[str, Any]:
             }
     except Exception as e:
         logger.exception(f"Exception in run_job for job {job_id}", extra={"job_id": job_id, "scraper_type": job_type})
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": str(e)
-        }
+        raise e
