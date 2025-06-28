@@ -19,11 +19,7 @@ def run_job(job_id: str, job_data: dict) -> Dict[str, Any]:
             return run_gis_operation(job_id, job_data)
         else:
             logger.error(f"Unknown job type: {job_type}", extra={"job_id": job_id, "scraper_type": job_type})
-            return {
-                "status": "failed",
-                "result": None,
-                "error_message": f"Unknown job type: {job_type}"
-            }
+            raise ValueError(f"Unknown job type: {job_type}")
     except Exception as e:
         logger.exception(f"Exception in run_job for job {job_id}", extra={"job_id": job_id, "scraper_type": job_type})
         raise e

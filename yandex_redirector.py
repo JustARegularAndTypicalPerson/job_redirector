@@ -13,11 +13,7 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
     if not operation_type:
         logger.error("Job data missing 'operation_type'", extra={"job_id": job_id})
 
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": "Job data must contain 'operation_type' key"
-        }
+        raise ValueError("Job data missing 'operation_type'")
 
     try:
         logger.info(f"[Yandex] Running operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
@@ -65,18 +61,10 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             
-            return {
-                "status": "failed",
-                "result": None,
-                "error_message": f"Yandex unknown operation '{operation_type}' for job {job_id}"
-            }
+            raise ValueError(f"Unknown operation '{operation_type}'")
     
     except Exception as e:
     
         logger.exception(f"Exception in Yandex operation for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
-    
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": str(e)
-        }
+
+        raise

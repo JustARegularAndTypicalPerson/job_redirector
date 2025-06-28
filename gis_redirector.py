@@ -13,11 +13,7 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
     if not operation_type:
         logger.error("Job data missing 'operation_type'", extra={"job_id": job_id})
     
-        return {
-            "status": "failed",
-            "result": None,
-            "error_message": "Job data must contain 'operation_type' key"
-        }
+        raise ValueError("Job data missing 'operation_type'")
     
     try:
         logger.info(f"[GIS] Running operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
