@@ -80,7 +80,7 @@ root_logger.addHandler(console_handler)
 # Use module-level logger for this file
 logger = logging.getLogger(__name__)
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://34.60.28.143:6379/0")
 JOB_QUEUE_KEY = "jobs:queue"
 JOB_HASH_PREFIX = "job:"
 DEAD_LETTER_QUEUE_KEY = "jobs:dead-letter"

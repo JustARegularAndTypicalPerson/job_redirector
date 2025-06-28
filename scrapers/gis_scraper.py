@@ -19,9 +19,14 @@ logger = logging.getLogger(__name__)
 #   $env:GIS_BROWSER_PATH = "C:\\Path\\To\\Browser\\chrome.exe"
 # Example for Linux/macOS:
 #   export GIS_BROWSER_PATH="/usr/bin/google-chrome"
-BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
-if not BROWSER_PATH:
-    raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
+# BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
+# if not BROWSER_PATH:
+#     raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
+
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_persistent_context_dir = os.path.abspath(
+    os.path.join(_project_root, "organization_files")
+)
 
 # Global debug flag, controlled by an environment variable
 # If GIS_SCRAPER_DEBUG_PAUSE_ON_ERROR is "true", script will pause on certain errors.
@@ -637,7 +642,7 @@ def browser_context(headless: bool = False):
         logger.info(f"[browser_context] Starting Playwright (headless={headless})")
         playwright_instance = sync_playwright().start()
         browser_args = ["--start-minimized"]
-        browser = playwright_instance.chromium.launch_persistent_context(BROWSER_PATH, headless=headless, args=browser_args)
+        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args)
         page = browser.new_page()
         logger.info("[browser_context] Browser context and page created")
         yield page
