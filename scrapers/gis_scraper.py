@@ -327,7 +327,7 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
 
         return results
 
-def get_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
+def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
     """
     Scrapes all review details (text, date, sender, rating, source) for a given company.
     """
@@ -712,6 +712,6 @@ def get_reviews(job_data: dict) -> list[dict]:
     logger.info(f"[get_reviews_only] Scraping all reviews for target_id={target_id}")
     
     with browser_context(headless=headless) as page:
-        reviews_data = get_reviews(page, str(target_id))
+        reviews_data = get_reviewss(page, str(target_id))
         logger.info(f"[get_reviews_only] Scraping complete for target_id={target_id}")
         return reviews_data
