@@ -1,5 +1,6 @@
 # main.py
 import os
+import sys
 import time
 import json
 import uuid
@@ -81,6 +82,7 @@ root_logger.addHandler(console_handler)
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://34.60.28.143:6379/0")
+REDIS_PASSWORD = "N7r$5pX@f9vZq2!Lb9#T9iha967aY*&^)@!^"
 JOB_QUEUE_KEY = "jobs:queue"
 JOB_HASH_PREFIX = "job:"
 DEAD_LETTER_QUEUE_KEY = "jobs:dead-letter"
@@ -91,12 +93,17 @@ QUEUE_TIMEOUT = int(os.environ.get("QUEUE_TIMEOUT", 0))
 # After WORKER_ID is set, continue with Redis and other setup
 redis_client = None
 try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = redis.from_url(
+        REDIS_URL,
+        password=REDIS_PASSWORD,
+        decode_responses=True
+    )
     redis_client.ping()
     print(f"[{WORKER_ID}] Successfully connected to Redis.")
 except redis.exceptions.ConnectionError as e:
     logging.critical(f"CRITICAL: Could not connect to Redis: {e}")
-    exit(1)
+    sys.exit(1)
+
 
 # Add Redis and BetterStack handlers after redis_client is available
 redis_handler = RedisStreamHandler(redis_client, LOG_STREAM_KEY, WORKER_ID)
