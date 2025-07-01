@@ -224,9 +224,9 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
                 # c) Собираем рейтинг для текущего филиала
                 try:
                     # Локатор для элемента, содержащего рейтинг.
+                    page.wait_for_timeout(4000)
                     locator = page.locator(".Hy749fkp")
                     # Ждем его появления.
-                    page.wait_for_timeout(4000)
                     # Извлекаем текстовое содержимое (например, "4.5")
                     rating_text = locator.text_content()
                     # Преобразуем текст в число с плавающей точкой, обрабатывая запятые.
