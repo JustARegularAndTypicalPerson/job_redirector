@@ -642,7 +642,7 @@ def browser_context(headless: bool = False):
         logger.info(f"[browser_context] Starting Playwright (headless={headless})")
         playwright_instance = sync_playwright().start()
         browser_args = ["--start-minimized"]
-        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args)
+        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=False, args=browser_args)
         page = browser.new_page()
         logger.info("[browser_context] Browser context and page created")
         yield page
@@ -679,7 +679,7 @@ def get_statistics(job_data: dict) -> dict | None:
         raise ValueError("'target_id' is required in job_data for get_statistics.")
     logger.info(f"[get_statistics] Scraping statistics for target_id={target_id}, period={period}")
     
-    with browser_context(headless=headless) as page:
+    with browser_context(headless=False) as page:
         stats = download_and_process_table(page, target_id, period)
         if not stats:
             logger.error(f"[get_statistics] No statistics data found for company ID {target_id}.")
@@ -697,7 +697,7 @@ def get_reviews_data(job_data: dict) -> list[dict]:
         raise ValueError("'target_id' is required in job_data for get_reviews.")
     logger.info(f"[get_reviews] Scraping reviews for target_id={target_id}")
     
-    with browser_context(headless=headless) as page:
+    with browser_context(headless=False) as page:
         branch_data_list = get_rating_and_reviews(page, str(target_id))
         logger.info(f"[get_reviews] Scraping complete for target_id={target_id}")
         return branch_data_list
@@ -711,7 +711,7 @@ def get_reviews(job_data: dict) -> list[dict]:
         raise ValueError("'target_id' is required in job_data for get_reviews_only.")
     logger.info(f"[get_reviews_only] Scraping all reviews for target_id={target_id}")
     
-    with browser_context(headless=headless) as page:
+    with browser_context(headless=False) as page:
         reviews_data = get_reviewss(page, str(target_id))
         logger.info(f"[get_reviews_only] Scraping complete for target_id={target_id}")
         return reviews_data
