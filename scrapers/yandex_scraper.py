@@ -105,8 +105,14 @@ def get_child_texts(page: Page, locator: Locator) -> List[str]:
 
 
 def get_all_digits(text: str) -> int | None:
-    m = regex.search(r"\d+", text)
-    return int(m.group()) if m else None
+    result_digits = "" # Создаем пустую строку для сбора цифр
+    for char in text:
+        if char.isdigit(): # Проверяем, является ли символ цифрой
+            result_digits += char # Если да, добавляем его к результату
+    if result_digits == "":
+        return None
+    return int(result_digits)
+
 
 def get_all_letters(text: str) -> str:
     return ''.join(regex.findall(r'\p{L}', text, regex.U))
@@ -335,7 +341,7 @@ def get_branch_statistics(page: Page, branch_id: int, period: str | None) -> Lis
         counter_transitions_to_the_site = 0
         counter_phone_clicks = 0
         for i in page.locator('div.stat-box-kind').all():
-            
+
             texts = get_child_texts(page, i)
             if  "переходы" in get_all_letters(texts[0]):
                 key = "direct transitions"
