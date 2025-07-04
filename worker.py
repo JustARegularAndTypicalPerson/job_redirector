@@ -290,7 +290,7 @@ signal.signal(signal.SIGINT, handle_sigterm)
 if __name__ == "__main__":
     try:
         recover_interrupted_jobs()
-        gis_scraper.get_reviews({"target_id": 70000001040930142})  # Ensure GIS scraper is initialized
+        # gis_scraper.get_reviews({"target_id": 70000001040930142})  # Ensure GIS scraper is initialized
         main_loop()
     except Exception as e:
         root_logger.critical(f"Worker {WORKER_ID} crashed: {e}", exc_info=True)
