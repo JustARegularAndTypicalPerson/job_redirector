@@ -38,6 +38,12 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             result = get_reviews(job_data)
             return {"status": "success", "result": result, "error_message": ""}
         
+        elif operation_type == "send_answers":
+            from scrapers.gis_scraper import send_answers
+            
+            result = send_answers(job_data)
+            return {"status": "success", "result": result, "error_message": ""}
+        
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
 

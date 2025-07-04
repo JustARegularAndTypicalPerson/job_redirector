@@ -180,6 +180,35 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
             count = branch_links.count()
             logger.info(f"Found {count} branches for company {digits}.")
 
+            bool_var = True
+            max_scroll_attempts = 20  # Prevent infinite loops
+            scroll_attempts = 0
+            while bool_var and scroll_attempts < max_scroll_attempts:
+                # Последняя ссылка но переходим на 1 элемент выше чтобы можно было скроллить к ссылке
+                last_link_div = branch_links.last.locator("..")
+                last_link_div.evaluate(
+                   "el => el.scrollIntoView({behavior: 'auto', block: 'center'})")
+                page.wait_for_timeout(5000)
+                new_count = page.locator("div.llGvdsTc div._1wkBbEoy > a.OHk9PGG3").count()
+                if new_count > count:
+                    branch_links = page.locator("div.llGvdsTc div._1wkBbEoy > a.OHk9PGG3")
+                    count = new_count
+                else:
+                    bool_var = False
+                scroll_attempts += 1
+            if scroll_attempts == max_scroll_attempts:
+                logger.warning(f"Reached max scroll attempts while loading branch links for company {digits}.")
+
+            # Ensure all branch links are scrolled into view before iterating
+            for idx in range(count):
+                try:
+                    link_div = branch_links.nth(idx).locator("..")
+                    link_div.evaluate(
+                        "el => el.scrollIntoView({behavior: 'auto', block: 'center'})")
+                    page.wait_for_timeout(200)  # Small delay for UI update
+                except Exception as e:
+                    logger.warning(f"Could not scroll branch link #{idx} into view: {e}")
+
             # Итерируем по каждой ссылке филиала. `range(-1, count-1)` позволяет начать с -1,
             # чтобы при `max(i,0)` первый элемент (головная компания, если ее ссылка совпадает с первой ссылкой филиала)
             # был обработан корректно, а затем последовательно все остальные.
@@ -642,7 +671,7 @@ def browser_context(headless: bool = False):
         logger.info(f"[browser_context] Starting Playwright (headless={headless})")
         playwright_instance = sync_playwright().start()
         browser_args = ["--start-minimized"]
-        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=False, args=browser_args)
+        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args)
         page = browser.new_page()
         logger.info("[browser_context] Browser context and page created")
         yield page
@@ -679,7 +708,7 @@ def get_statistics(job_data: dict) -> dict | None:
         raise ValueError("'target_id' is required in job_data for get_statistics.")
     logger.info(f"[get_statistics] Scraping statistics for target_id={target_id}, period={period}")
     
-    with browser_context(headless=False) as page:
+    with browser_context(headless=headless) as page:
         stats = download_and_process_table(page, target_id, period)
         if not stats:
             logger.error(f"[get_statistics] No statistics data found for company ID {target_id}.")
@@ -697,7 +726,7 @@ def get_reviews_data(job_data: dict) -> list[dict]:
         raise ValueError("'target_id' is required in job_data for get_reviews.")
     logger.info(f"[get_reviews] Scraping reviews for target_id={target_id}")
     
-    with browser_context(headless=False) as page:
+    with browser_context(headless=headless) as page:
         branch_data_list = get_rating_and_reviews(page, str(target_id))
         logger.info(f"[get_reviews] Scraping complete for target_id={target_id}")
         return branch_data_list
@@ -711,7 +740,12 @@ def get_reviews(job_data: dict) -> list[dict]:
         raise ValueError("'target_id' is required in job_data for get_reviews_only.")
     logger.info(f"[get_reviews_only] Scraping all reviews for target_id={target_id}")
     
-    with browser_context(headless=False) as page:
+    with browser_context(headless=headless) as page:
         reviews_data = get_reviewss(page, str(target_id))
         logger.info(f"[get_reviews_only] Scraping complete for target_id={target_id}")
         return reviews_data
+
+def send_answers(job_data: dict):
+    target_id = job_data.get('target_id')
+    
+    

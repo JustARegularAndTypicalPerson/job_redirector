@@ -8,8 +8,6 @@ import atexit
 import logging
 from unidecode import unidecode
 import re
-from contextlib import contextmanager
-
 # Setup logging
 logger = logging.getLogger(__name__)
 
@@ -19,14 +17,14 @@ logger = logging.getLogger(__name__)
 #   $env:GIS_BROWSER_PATH = "C:\\Path\\To\\Browser\\chrome.exe"
 # Example for Linux/macOS:
 #   export GIS_BROWSER_PATH="/usr/bin/google-chrome"
-# BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
-# if not BROWSER_PATH:
-#     raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
+BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
+if not BROWSER_PATH:
+    raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
 
 # Define a directory for persistent context.
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _persistent_context_dir = os.path.abspath(
-    os.path.join(_project_root, "organization_files")
+    os.path.join(_project_root, "organizations_files")
 )
 
 # Setup logging
@@ -47,6 +45,8 @@ def check_for_captcha(page: Page):
         raise CaptchaRequired(page.url)
     if page.locator("img[src*='captcha']").count() and page.locator("input[name*='captcha']").count():
         raise CaptchaRequired(page.url)
+
+
 
 def locate_target_company(page: Page, id: int) -> Locator:
     id_str = str(id)
@@ -105,14 +105,8 @@ def get_child_texts(page: Page, locator: Locator) -> List[str]:
 
 
 def get_all_digits(text: str) -> int | None:
-    result_digits = "" # Создаем пустую строку для сбора цифр
-    for char in text:
-        if char.isdigit(): # Проверяем, является ли символ цифрой
-            result_digits += char # Если да, добавляем его к результату
-    if result_digits == "":
-        return None
-    return int(result_digits)
-
+    m = regex.search(r"\d+", text)
+    return int(m.group()) if m else None
 
 def get_all_letters(text: str) -> str:
     return ''.join(regex.findall(r'\p{L}', text, regex.U))
@@ -138,6 +132,8 @@ def check_connection(page: Page):
             page.wait_for_timeout(30000)
         else:
             break
+
+
 
 def select_grouping(page: Page):
     try:
@@ -173,133 +169,6 @@ def find_and_click_profile_link(page: Page) -> bool:
             return False
     except:
         pass
-
-
-def convert_date_format(date_str):
-    # Словарь для преобразования названий месяцев с русского на английский
-    month_mapping = {
-        'января': 'January', 'февраля': 'February', 'марта': 'March', 'апреля': 'April',
-        'мая': 'May', 'июня': 'June', 'июля': 'July', 'августа': 'August',
-        'сентября': 'September', 'октября': 'October', 'ноября': 'November', 'декабря': 'December'
-    }
-
-    # Разбиваем строку на части и заменяем русское название месяца на английское
-    parts = date_str.split()
-    day = parts[0]
-    month_ru = parts[1]
-    year = parts[2]
-
-    month_en = month_mapping.get(month_ru.lower()) # Используем .lower() на случай разных регистров
-    if not month_en:
-        raise ValueError(f"Неизвестное название месяца: {month_ru}")
-
-    # Собираем строку в формат, который datetime может парсить
-    parsed_date_str = f"{day} {month_en} {year}"
-
-    # Парсим строку в объект datetime
-    date_object = datetime.strptime(parsed_date_str, '%d %B %Y')
-
-    # Форматируем объект datetime в нужный выходной формат
-    return date_object.strftime('%d.%m.%Y')
-
-
-def extract_url_from_background_image(css_string: str) -> str :
-    """
-    Извлекает URL-адрес из строки CSS 'background-image'.
-
-    Args:
-        css_string (str): Строка CSS, содержащая свойство background-image.
-                          Пример: 'background-image: url("https://example.com/image.jpg");'
-                          или 'background-image: url(\"https://example.com/image.jpg\");'
-
-    Returns:
-        str | "": Извлеченный URL-адрес или "", если URL не найден.
-    """
-    # Паттерн регулярного выражения:
-    # url\( - соответствует "url(" буквально
-    # ["']? - соответствует опциональной кавычке (одинарной или двойной)
-    # (.*?) - захватывает любой символ (нежадный режим) до следующей кавычки/скобки
-    # ["']? - соответствует опциональной кавычке
-    # \) - соответствует ")" буквально
-    # re.DOTALL позволяет . соответствовать символам новой строки, хотя в данном случае это не критично.
-    pattern = r'url\(["\']?(.*?)["\']?\)'
-    
-    match = re.search(pattern, css_string)
-    
-    if match:
-        # match.group(1) содержит содержимое первой захватывающей группы, то есть сам URL
-        return match.group(1)
-    else:
-        return "error_in_parser, ask programmer"
-
-
-def get_unreaded_review_data_from_page(page: Page, page_num: int, id: int, page_max_num: int) -> List[Dict[str, Any]]:
-    reviews_box_locator = page.locator("div.Review Review_unread").all()
-    logger.debug(f"Found {len(reviews_box_locator)} review boxes on page {page_num}.")
-    out_dict = {"pagination_page_max_num": page_max_num, "id": id, "reviews_info_list": []}
-
-    for review in reviews_box_locator:
-        review_class_attr = review.get_attribute("class") or ""
-        review_is_read = "Review_unread" not in review_class_attr
-        try:
-            review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
-        # Scroll into view and click via JS
-            review.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
-            review.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.click()"
-        )        
-        except:
-            pass
-        avatar_link = review.locator("div.Review-InfoWrapper").locator("img").get_attribute("src")
-        nickname_of_the_review_author = review.locator("div.Review-UserName").text_content()
-        rating = get_all_digits(review.locator("span.StarsRating").get_attribute("class"))/2
-        date_of_review = convert_date_format(review.locator("span.Review-Date").text_content())
-        review_text = review.locator("div.Review-Text").text_content()
-        data_of_answer = "has not answer"
-        text_of_answer = "has not answer"
-
-        if review_is_read:
-            # Only click to expand if it's not already expanded or if necessary
-            # This logic might need adjustment based on how "read" reviews are displayed
-            hide_button = review.locator("span.BusinessResponseSaved-HideButton_top")
-            if hide_button.is_visible(timeout=500): # Check if it's collapsible (i.e., expanded)
-                try:
-                    hide_button.click(timeout=500) # Click to potentially reveal or ensure state
-                except Exception as e:
-                    logger.debug(f"Could not click hide button for review answer: {e}")
-            
-            response_timestamp_locator = review.locator("span.BusinessResponseSaved-ResponseTimestamp")
-            if response_timestamp_locator.is_visible(timeout=1000): # Increased timeout
-                data_of_answer = convert_date_format(response_timestamp_locator.text_content())
-                text_of_answer = review.locator("div.ResponseTextContent, div.BusinessResponseSaved-ResponseTextContent").text_content(timeout=1000)
-        
-        all_photoes_src_list = []
-        # Simpler selector for review tiles, assuming they are direct children or identifiable
-        photo_tile_selector = "div.Review-Tile" # Adjusted selector
-        if review.locator(photo_tile_selector).first.is_visible(timeout=500): # Check visibility of the first potential tile
-            all_photoes_div_locators = review.locator(photo_tile_selector).all()
-            for i in all_photoes_div_locators:
-                all_photoes_src_list.append(extract_url_from_background_image(i.get_attribute("style")).replace("&quot;", ""))
-        
-        out_dict["reviews_info_list"].append({
-            "nickname": nickname_of_the_review_author,
-            "link_to_avatar": avatar_link,
-            "data_of_review": date_of_review,
-            "review_is_readed": review_is_read,
-            "rating": rating,
-            "review_text": review_text,
-            "all_photoes_src_list": all_photoes_src_list, # Will be an empty list if no photos
-            "data_of_answer": data_of_answer,
-            "text_of_answer": text_of_answer
-        })
-    return out_dict
-
-
-
 # --- Main logic ---
 def get_branch_statistics(page: Page, branch_id: int, period: str | None) -> List[Tuple[str, Any]]:
     page.goto(f"https://yandex.ru/business/statistic/company/{branch_id}/audience")
@@ -341,7 +210,7 @@ def get_branch_statistics(page: Page, branch_id: int, period: str | None) -> Lis
         counter_transitions_to_the_site = 0
         counter_phone_clicks = 0
         for i in page.locator('div.stat-box-kind').all():
-
+            
             texts = get_child_texts(page, i)
             if  "переходы" in get_all_letters(texts[0]):
                 key = "direct transitions"
@@ -562,6 +431,62 @@ def get_branch_competitors(page: Page, branch_id: int) -> List[Tuple[str, Any]]:
     return out
 
 
+def convert_date_format(date_str):
+    # Словарь для преобразования названий месяцев с русского на английский
+    month_mapping = {
+        'января': 'January', 'февраля': 'February', 'марта': 'March', 'апреля': 'April',
+        'мая': 'May', 'июня': 'June', 'июля': 'July', 'августа': 'August',
+        'сентября': 'September', 'октября': 'October', 'ноября': 'November', 'декабря': 'December'
+    }
+
+    # Разбиваем строку на части и заменяем русское название месяца на английское
+    parts = date_str.split()
+    day = parts[0]
+    month_ru = parts[1]
+    year = parts[2]
+
+    month_en = month_mapping.get(month_ru.lower()) # Используем .lower() на случай разных регистров
+    if not month_en:
+        raise ValueError(f"Неизвестное название месяца: {month_ru}")
+
+    # Собираем строку в формат, который datetime может парсить
+    parsed_date_str = f"{day} {month_en} {year}"
+
+    # Парсим строку в объект datetime
+    date_object = datetime.strptime(parsed_date_str, '%d %B %Y')
+
+    # Форматируем объект datetime в нужный выходной формат
+    return date_object.strftime('%d.%m.%Y')
+
+def extract_url_from_background_image(css_string: str) -> str :
+    """
+    Извлекает URL-адрес из строки CSS 'background-image'.
+
+    Args:
+        css_string (str): Строка CSS, содержащая свойство background-image.
+                          Пример: 'background-image: url("https://example.com/image.jpg");'
+                          или 'background-image: url(\"https://example.com/image.jpg\");'
+
+    Returns:
+        str | "": Извлеченный URL-адрес или "", если URL не найден.
+    """
+    # Паттерн регулярного выражения:
+    # url\( - соответствует "url(" буквально
+    # ["']? - соответствует опциональной кавычке (одинарной или двойной)
+    # (.*?) - захватывает любой символ (нежадный режим) до следующей кавычки/скобки
+    # ["']? - соответствует опциональной кавычке
+    # \) - соответствует ")" буквально
+    # re.DOTALL позволяет . соответствовать символам новой строки, хотя в данном случае это не критично.
+    pattern = r'url\(["\']?(.*?)["\']?\)'
+    
+    match = re.search(pattern, css_string)
+    
+    if match:
+        # match.group(1) содержит содержимое первой захватывающей группы, то есть сам URL
+        return match.group(1)
+    else:
+        return "error_in_parser, ask programmer"
+
 
 def get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, Any]]:
     """
@@ -650,295 +575,55 @@ def get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, 
         })
     return out_dict
 
-def get_unreaded_reviews_part( page: Page, id: int) -> List[Tuple[str, Dict[str, Any]]]:
-    #проверка подключения
-    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page=1&unread=true&type=company")
-    check_connection(page)
-    if f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page=1&type=company" not in page.url:
-        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page=1&type=company")
-
-    #Определение максимального номера страницы отзывов чтобы не выйти за лимит 
-    page_max_num = 1
-    pagination_pages_locator = page.locator("div.Pagination-Pages")
-    if pagination_pages_locator.is_visible(timeout=5000):
-            pagination_locator_texts = get_child_texts(page, pagination_pages_locator)
-            list_of_paginations_nums = []
-            for i_text in pagination_locator_texts:
-                num = get_all_digits(i_text)
-                if num is not None:
-                    list_of_paginations_nums.append(num)
-            if list_of_paginations_nums:
-                page_max_num = max(list_of_paginations_nums)
-    
-    #Объявление списка данных по непрочитыннм отзывам
-    unreaded_reviews_data_list = []
-
-    #С текущей (первой) страницы добавляем в возвращаемый список данные по непрочитанным отзывам
-    unreaded_reviews_data_list.append(("Данные со страницы номер 1" , get_unreaded_review_data_from_page(page, 1, id, page_max_num)))
-    
-    #До тех пока на странице есть локатор на элемент с непрочитанным отзывом цикла добавляет в список данные по ним
-    for i in range(2, page_max_num+1):
-        #тут переходим на страницы отзывов начиная со второй и до момента, пока на странице не будет ни  одного непрочитанного отзыва
-        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page={i}&unread=true&type=company")
-        
-        if len(page.locator("div.Review Review_unread").all()) > 0:
-            #Получение списка локаторов на непрочитанные отзывы на текущей странице
-            unreaded_reviews_data_list.append((f"Данные со страницы номер {i}",get_unreaded_review_data_from_page(page, i, id, page_max_num)))
-        else: #Срабатывает когда на странице нет ни одного непрочитанного отзыва
-            break
-    return unreaded_reviews_data_list
-
-
-
-def write_answer_part(page: Page, id : int, nickname: str, review_text : str, answer_text: str) -> str:
-    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    check_connection(page)
-    if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
-        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    unreaded_reviews = page.locator("div.Review Review_unread").all()
-    for unreaded_review in unreaded_reviews:
-        unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
-        try:
-            unreaded_review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
-
-        # Scroll into view and click via JS
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.click()"
-        )
-        except:
-            pass
-        unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower() == nickname.lower() and unreaded_review_review_text.lower() == review_text.lower():
-            unreaded_review.eval_on_selector(
-            "span.Textarea-Wrap",
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
-            unreaded_review.locator("span.Textarea-Wrap").locator("textarea.Textarea-Control").fill(answer_text)
-            page.wait_for_timeout(1000)
-            unreaded_review.locator("span.ya-business-yabs-button__icon").nth(0).click()
-            break
-
-
-def complain_about_a_review_part(page: Page, id : int, nickname: str, review_text : str, complain_text: str) -> str:
-    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    check_connection(page)
-    if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
-        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    unreaded_reviews = page.locator("div.Review Review_unread").all()
-    for unreaded_review in unreaded_reviews:
-        unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
-        try:
-            unreaded_review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
-
-        # Scroll into view and click via JS
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.click()"
-        )
-        except:
-            pass
-        unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower() == nickname.lower() and unreaded_review_review_text.lower() == review_text.lower():
-            unreaded_review.locator("span.Icon Icon_depot_ErrorOutline16Neoblue Help-Icon").click()
-            page.wait_for_selector("taxtarea.ya-business-ui-textarea__control ym-record-keys", timeout= 3000)
-            page.locator("taxtarea.ya-business-ui-textarea__control ym-record-keys").fill(complain_text)
-            page.wait_for_selector("span.ya-business-yabs-button__text", timeout=3000)
-            page.locator("span.ya-business-yabs-button__text").click()
-
-def mark_as_readed_part(page: Page, id : int, nickname: str, review_text : str) -> str:
-    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    check_connection(page)
-    if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
-        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    unreaded_reviews = page.locator("div.Review Review_unread").all()
-    for unreaded_review in unreaded_reviews:
-        unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
-        try:
-            unreaded_review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
-
-        # Scroll into view and click via JS
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.click()"
-        )
-        except:
-            pass
-        unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower() == nickname.lower() and unreaded_review_review_text.lower() == review_text.lower():
-            unreaded_review.locator("span.Icon Icon_depot_ToDo16Neoblue Help-Icon").click()
-
-
-
-
-
-@contextmanager
-def browser_context(headless: bool = False):
+def run(target_id: int, task_type: str, period: str | None = None, cookies: list | None = None, page_num: int = 1, headless: bool = False) -> dict:
     """
-    Context manager for Playwright browser context setup and teardown.
-    Yields a new page object.
+    Execute scraping and return raw dict. Raises exceptions on errors or CaptchaRequired.
+    task_type can be "statistics" or "competitors".
     """
     playwright_instance = None
-    browser: BrowserContext | None = None
+    browser: BrowserContext | None = None # Renamed for clarity
     page: Page | None = None
     try:
-        logger.info(f"[browser_context] Starting Playwright (headless={headless})")
         playwright_instance = sync_playwright().start()
+        if not playwright_instance:
+            raise RuntimeError("Failed to start Playwright.")
+
+        # Add --start-minimized argument for Chromium
         browser_args = ["--start-minimized"]
-        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args)
+        browser = playwright_instance.chromium.launch_persistent_context(BROWSER_PATH, headless=headless, args=browser_args)
+        if cookies: 
+            browser.add_cookies(cookies)
+
         page = browser.new_page()
-        logger.info("[browser_context] Navigating to Yandex companies page")
         page.goto("https://yandex.ru/sprav/companies")
-        yield page
+
+        result_payload = {}
+        if task_type == "statistics":
+            stats = get_branch_statistics(page, target_id, period)
+            result_payload["statistics"] = stats
+        elif task_type == "competitors":
+            comps = get_branch_competitors(page, target_id)
+            result_payload["competitors"] = comps
+        elif task_type == "reviews":
+            result_payload["reviews"] = get_reviews(page, target_id, page_num)
+        else:
+            raise ValueError(f"Unknown task_type for yandex_scraper: {task_type}")
+
+        return {"target_id": target_id, **result_payload}
     finally:
         if page and not page.is_closed():
             try:
                 page.close()
-                logger.info("[browser_context] Page closed")
             except Exception as e:
-                logger.warning(f"[browser_context] Exception during page close: {e}", exc_info=True)
-        if browser and hasattr(browser, 'close'):
-            try:
+                logger.warning(f"Exception during page close: {e}", exc_info=True)
+        if browser and hasattr(browser, 'close'): # Check if context was assigned and is closable
+            try: # browser_context is the actual context object from Playwright
                 browser.close()
-                logger.info("[browser_context] Browser context closed")
             except Exception as e:
-                logger.warning(f"[browser_context] Exception during browser_context close: {e}", exc_info=True)
+                logger.warning(f"Exception during browser_context close: {e}", exc_info=True)
         if playwright_instance:
             try:
                 playwright_instance.stop()
-                logger.info("[browser_context] Playwright stopped")
             except Exception as e:
-                logger.warning(f"[browser_context] Exception during Playwright stop: {e}", exc_info=True)
+                logger.warning(f"Exception during Playwright stop: {e}", exc_info=True)
 
-def get_statistics(job_data: dict) -> dict:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[get_statistics] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for get_statistics.")
-    period = job_data.get('period')
-    headless = job_data.get('headless', False)
-    logger.info(f"[get_statistics] Scraping statistics for target_id={target_id}, period={period}")
-    with browser_context(headless=headless) as page:
-        stats = get_branch_statistics(page, target_id, period)
-        logger.info(f"[get_statistics] Scraping complete for target_id={target_id}")
-        return {"target_id": target_id, "statistics": stats}
-
-def get_competitors(job_data: dict) -> dict:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[get_competitors] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for get_competitors.")
-    headless = job_data.get('headless', False)
-    logger.info(f"[get_competitors] Scraping competitors for target_id={target_id}")
-    with browser_context(headless=headless) as page:
-        comps = get_branch_competitors(page, target_id)
-        logger.info(f"[get_competitors] Scraping complete for target_id={target_id}")
-        return {"target_id": target_id, "competitors": comps}
-
-def get_reviews(job_data: dict) -> dict:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[get_reviews] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for get_reviews.")
-    page_num = job_data.get('page_num', 1)
-    headless = job_data.get('headless', False)
-    logger.info(f"[get_reviews] Scraping reviews for target_id={target_id}, page_num={page_num}")
-    with browser_context(headless=headless) as page:
-        reviews = get_reviews(page, target_id, page_num)
-        logger.info(f"[get_reviews] Scraping complete for target_id={target_id}, page_num={page_num}")
-        return {"target_id": target_id, "reviews": reviews}
-    
-def get_unreaded_reviews(job_data: dict) -> dict:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[get_unreaded_reviews] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for get_unreaded_reviews.")
-    headless = job_data.get('headless', False)
-    logger.info(f"[get_unreaded_reviews] Scraping all unreaded reviews for target_id={target_id}")
-    with browser_context(headless=headless) as page:
-        unreaded_reviews = get_unreaded_reviews_part(page, target_id)
-        logger.info(f"[get_unreaded_reviews] Scraping complete for target_id={target_id}")
-        return {"target_id": target_id, "reviews": unreaded_reviews}
-
-
-def write_answer(job_data: dict) -> str:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[write_answer] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for write_answer.")
-    nickname = job_data.get('nickname')
-    if nickname is None:
-        logger.error("[write_answer] 'nickname' is required in job_data")
-        raise ValueError("'nickname' is required in job_data for write_answer.")
-    review_text = job_data.get('review_text')
-    if review_text is None:
-        logger.error("[write_answer] 'review_text' is required in job_data")
-        raise ValueError("'review_text' is required in job_data for write_answer.")
-    answer_text = job_data.get('answer_text')
-    if answer_text is None:
-        logger.error("[write_answer] 'answer_text' is required in job_data")
-        raise ValueError("'answer_text' is required in job_data for write_answer.")
-    page_num = job_data.get('page_num', 1)
-    headless = job_data.get('headless', False)
-    logger.info(f"[write_answer] Scraping all unreaded reviews for target_id={target_id}")
-    with browser_context(headless=headless) as page:
-        write_answer_part(page, target_id, nickname, review_text, answer_text)
-        logger.info(f"[write_answer] Succesfull writed answer for target_id={target_id}, page_num={page_num}")
-        return f"[write_answer] Succesfull writed answer for target_id={target_id}, page_num={page_num}"
-
-
-def complain_about_a_review(job_data: dict) -> str:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[complain_about_a_review] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for complain_about_a_review.")
-    nickname = job_data.get('nickname')
-    if nickname is None:
-        logger.error("[complain_about_a_review] 'nickname' is required in job_data")
-        raise ValueError("'nickname' is required in job_data for complain_about_a_review.")
-    review_text = job_data.get('review_text')
-    if review_text is None:
-        logger.error("[complain_about_a_review] 'review_text' is required in job_data")
-        raise ValueError("'review_text' is required in job_data for complain_about_a_review.")
-    complain_text = job_data.get('review_text')
-    if complain_text is None:
-        logger.error("[complain_about_a_review] 'complain_text' is required in job_data")
-        raise ValueError("'complain_text' is required in job_data for complain_about_a_review.")
-    headless = job_data.get('headless', False)
-    logger.info(f"[complain_about_a_review] Scraping all unreaded reviews for target_id={target_id}")
-    with browser_context(headless=headless) as page:
-        complain_about_a_review_part(page, target_id, nickname, review_text, complain_text)
-        logger.info(f"[complain_about_a_review] Succesfull writed complain for target_id={target_id}")
-        return f"[complain_about_a_review] Succesfull writed complain for target_id={target_id}"
-
-def mark_as_readed(job_data: dict) -> str:
-    target_id = job_data.get('target_id')
-    if target_id is None:
-        logger.error("[mark_as_readed] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for mark_as_readed.")
-    nickname = job_data.get('nickname')
-    if nickname is None:
-        logger.error("[mark_as_readed] 'nickname' is required in job_data")
-        raise ValueError("'nickname' is required in job_data for mark_as_readed.")
-    review_text = job_data.get('review_text')
-    if review_text is None:
-        logger.error("[mark_as_readed] 'review_text' is required in job_data")
-        raise ValueError("'review_text' is required in job_data for mark_as_readed.")
-    headless = job_data.get('headless', False)
-    logger.info(f"[mark_as_readed] Scraping all unreaded reviews for target_id={target_id}")
-    with browser_context(headless=headless) as page:
-        mark_as_readed_part(page, target_id, nickname, review_text)
-        logger.info(f"[mark_as_readed] Succesfull marked readed for target_id={target_id}")
-        return f"[mark_as_readed] Succesfull marked readed for target_id={target_id}"
