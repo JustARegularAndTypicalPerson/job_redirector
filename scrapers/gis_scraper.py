@@ -356,130 +356,176 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
 
         return results
 
-def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
+def _get_all_branch_review_urls(page: Page, digits: str) -> list[dict]:
     """
-    Scrapes all review details (text, date, sender, rating, source) for a given company.
+    Returns a list of dicts: [{branch_id, branch_name, url}], one for each branch (or just the main company if no branches).
+    Uses the robust branch detection and scrolling logic from get_rating_and_reviews.
     """
-    results: List[Dict[str, Any]] = []
     page.goto(f"https://account.2gis.com/orgs/{digits}/reviews")
     handle_ads_by_clicking(page)
-    page.wait_for_timeout(8000) # Allow page to settle
-
-    # Selector for individual review cards
-    review_card_selector = "div.aYDODrXf._9tLQnNX3"
-
-    # Scroll/click "Load More" to load all reviews
-    logger.info(f"Scrolling to load all reviews for company {digits}...")
-    load_more_button_selector = "button.button__basic-1agAe:has-text('Загрузить ещё')"
-    max_attempts = 15 # Max attempts to load more, to prevent infinite loops
-    
-    for attempt in range(max_attempts):
-        initial_review_count = page.locator(review_card_selector).count()
-        
-        load_more_button = page.locator(load_more_button_selector)
-        if load_more_button.is_visible(timeout=1500):
-            logger.info(f"Attempt {attempt + 1}/{max_attempts}: Clicking 'Загрузить ещё' button.")
-            try:
-                load_more_button.click(timeout=5000)
-                page.wait_for_timeout(3000) # Wait for content to load
-            except PlaywrightError as e:
-                logger.warning(f"Could not click 'Загрузить ещё' button or timed out: {e}. Trying to scroll.")
-                page.keyboard.press("End")
-                page.wait_for_timeout(2500)
-        else:
-            logger.info(f"Attempt {attempt + 1}/{max_attempts}: Load more button not visible, scrolling to bottom.")
-            page.keyboard.press("End")
-            page.wait_for_timeout(2500)
-
-        current_review_count = page.locator(review_card_selector).count()
-        if current_review_count == initial_review_count:
-            logger.info("No new reviews loaded. Assuming all are loaded.")
-            break
-        if attempt == max_attempts - 1:
-            logger.warning("Reached max attempts to load more reviews.")
-            
-    review_cards = page.locator(review_card_selector).all()
-    logger.info(f"Found {len(review_cards)} review cards for company {digits}.")
-
-    for card in review_cards:
-        review_data = {}
+    page.wait_for_timeout(2000)
+    branches = []
+    try:
+        toggle = page.locator(".mLSzlnkE")
+        toggle.wait_for(timeout=3000)
+        branches_exist = True
+    except PlaywrightTimeoutError:
+        branches_exist = False
+    if branches_exist:
         try:
-            review_data["sender_name"] = card.locator(".DaMPj2-X").first.text_content(timeout=500).strip()
-            
-            raw_date = card.locator(".XRSXmsMZ").first.text_content(timeout=500).strip()
-            review_data["date"] = convert_gis_date_format(raw_date)
-            
-            review_data["source"] = card.locator(".qyojshn0").text_content(timeout=500).strip()
-            
-            # More specific selector for the main review text
-            # It targets the div._44uMQjyS that is a child of the div with "overflow: hidden"
-            main_review_text_element = card.locator("div[style*='overflow: hidden'] > ._44uMQjyS")
-            if main_review_text_element.count() > 0:
-                review_data["text"] = main_review_text_element.first.text_content(timeout=1000).strip()
+            toggle.click()
+            page.wait_for_timeout(200)
+        except PlaywrightError:
+            branches_exist = False
+    if branches_exist:
+        page.wait_for_timeout(1000)
+        branch_links = page.locator("div.llGvdsTc div._1wkBbEoy > a.OHk9PGG3")
+        count = branch_links.count()
+        bool_var = True
+        max_scroll_attempts = 20
+        scroll_attempts = 0
+        while bool_var and scroll_attempts < max_scroll_attempts:
+            last_link_div = branch_links.last.locator("..")
+            last_link_div.evaluate(
+                "el => el.scrollIntoView({behavior: 'auto', block: 'center'})")
+            page.wait_for_timeout(3000)
+            new_count = page.locator("div.llGvdsTc div._1wkBbEoy > a.OHk9PGG3").count()
+            if new_count > count:
+                branch_links = page.locator("div.llGvdsTc div._1wkBbEoy > a.OHk9PGG3")
+                count = new_count
             else:
-                review_data["text"] = None # Or handle as an error/warning
-            # Extract branch address if present
-            branch_address_element = card.locator("a.YUUmvmnL")
-            if branch_address_element.count() > 0:
-                branch_address_text = branch_address_element.text_content(timeout=500).strip()
-                review_data["branch_address"] = branch_address_text
-                href = branch_address_element.get_attribute("href")
-                if href:
-                    # Regex to find two numbers in the path, e.g., /orgs/NUMBER1/reviews/NUMBER2
-                    match = re.search(r"/orgs/(\d+)/reviews/(\d+)", href)
-                    if match:
-                        review_data["branch_id"] = match.group(2) # The second captured group is the branch_id
-                    else:
-                        review_data["branch_id"] = None
+                bool_var = False
+            scroll_attempts += 1
+        # Scroll all links into view
+        # for idx in range(count):
+        #     try:
+        #         link_div = branch_links.nth(idx).locator("..")
+        #         link_div.evaluate(
+        #             "el => el.scrollIntoView({behavior: 'auto', block: 'center'})")
+        #         page.wait_for_timeout(100)
+        #     except Exception:
+        #         pass
+        # Collect all branch URLs
+        for idx in range(count):
+            link = branch_links.nth(idx)
+            branch_name = link.text_content().strip() if link.text_content() else ""
+            href = link.get_attribute("href")
+            branch_id = None
+            if href:
+                m = re.search(r"/reviews/(\d+)$", href)
+                if m:
+                    branch_id = m.group(1)
+            url = page.url if not href else href if href.startswith("http") else f"https://account.2gis.com{href}"
+            branches.append({"branch_id": branch_id or str(idx), "branch_name": branch_name, "url": url})
+    else:
+        # No branches, just the main company
+        branches.append({"branch_id": digits, "branch_name": "", "url": f"https://account.2gis.com/orgs/{digits}/reviews"})
+    return branches
+
+def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
+    """
+    Scrapes all review details (text, date, sender, rating, source) for a given company and all its branches.
+    Uses robust branch navigation logic from get_rating_and_reviews.
+    """
+    results: List[Dict[str, Any]] = []
+    branches = _get_all_branch_review_urls(page, digits)
+    for branch in branches:
+        page.goto(branch["url"])
+        handle_ads_by_clicking(page)
+        page.wait_for_timeout(2000)
+        review_card_selector = "div.aYDODrXf._9tLQnNX3"
+        load_more_button_selector = "button.button__basic-1agAe:has-text('Загрузить ещё')"
+        max_attempts = 15
+        for attempt in range(max_attempts):
+            initial_review_count = page.locator(review_card_selector).count()
+            load_more_button = page.locator(load_more_button_selector)
+            if load_more_button.is_visible():
+                try:
+                    load_more_button.click(timeout=5000)
+                    page.wait_for_timeout(2000)
+                except PlaywrightError:
+                    page.keyboard.press("End")
+                    page.wait_for_timeout(1000)
             else:
-                review_data["branch_address"] = None
-                review_data["branch_id"] = None
-            
-            # Extract rating from style attribute (width of stars)
+                page.keyboard.press("End")
+                page.wait_for_timeout(1000)
+            current_review_count = page.locator(review_card_selector).count()
+            if current_review_count == initial_review_count:
+                break
+        review_cards = page.locator(review_card_selector).all()
+        for card in review_cards:
+            review_data = {}
             try:
-                rating_front_element = card.locator(".rating__front-5nKiy")
-                style_attr = rating_front_element.get_attribute("style", timeout=500)
-                if style_attr:
-                    width_match = re.search(r"width:\s*(\d+)px;", style_attr)
-                    if width_match:
-                        # Assuming 1 star = 18px width (5 stars = 90px)
-                        # This might need adjustment based on actual star rendering
-                        rating_value = int(width_match.group(1)) / 18.0 
-                        review_data["rating"] = round(rating_value, 1)
+                review_data["sender_name"] = card.locator(".DaMPj2-X").first.text_content(timeout=500).strip()
+                
+                raw_date = card.locator(".XRSXmsMZ").first.text_content(timeout=500).strip()
+                review_data["date"] = convert_gis_date_format(raw_date)
+                
+                review_data["source"] = card.locator(".qyojshn0").text_content(timeout=500).strip()
+                
+                # More specific selector for the main review text
+                # It targets the div._44uMQjyS that is a child of the div with "overflow: hidden"
+                main_review_text_element = card.locator("div[style*='overflow: hidden'] > ._44uMQjyS")
+                if main_review_text_element.count() > 0:
+                    review_data["text"] = main_review_text_element.first.text_content(timeout=1000).strip()
+                else:
+                    review_data["text"] = None # Or handle as an error/warning
+                # Extract branch address if present
+                branch_address_element = card.locator("a.YUUmvmnL")
+                if branch_address_element.count() > 0:
+                    branch_address_text = branch_address_element.text_content(timeout=500).strip()
+                    review_data["branch_address"] = branch_address_text
+                    href = branch_address_element.get_attribute("href")
+                    if href:
+                        # Regex to find two numbers in the path, e.g., /orgs/NUMBER1/reviews/NUMBER2
+                        match = re.search(r"/orgs/(\d+)/reviews/(\d+)", href)
+                        if match:
+                            review_data["branch_id"] = match.group(2) # The second captured group is the branch_id
+                        else:
+                            review_data["branch_id"] = None
+                else:
+                    review_data["branch_address"] = None
+                    review_data["branch_id"] = branch["branch_id"]
+                
+                # Extract rating from style attribute (width of stars)
+                try:
+                    rating_front_element = card.locator(".rating__front-5nKiy")
+                    style_attr = rating_front_element.get_attribute("style", timeout=500)
+                    if style_attr:
+                        width_match = re.search(r"width:\s*(\d+)px;", style_attr)
+                        if width_match:
+                            # Assuming 1 star = 18px width (5 stars = 90px)
+                            # This might need adjustment based on actual star rendering
+                            rating_value = int(width_match.group(1)) / 18.0 
+                            review_data["rating"] = round(rating_value, 1)
+                        else:
+                            review_data["rating"] = None
                     else:
                         review_data["rating"] = None
-                else:
+                except PlaywrightError:
                     review_data["rating"] = None
-            except PlaywrightError:
-                review_data["rating"] = None
 
-            reply_container = card.locator("div._2ppV02M7")
-            if reply_container.count() > 0:
-                company_reply = {}
-                try:
-                    company_reply["replier_name"] = reply_container.locator(".DaMPj2-X").text_content(timeout=500).strip()
-                    raw_reply_date = reply_container.locator(".XRSXmsMZ").text_content(timeout=500).strip()
-                    company_reply["reply_date"] = convert_gis_date_format(raw_reply_date)
-                    company_reply["reply_text"] = reply_container.locator("._44uMQjyS").text_content(timeout=1000).strip()
-                    review_data["company_reply"] = company_reply
-                except PlaywrightError as e:
-                    logger.warning(f"Could not extract full company reply details: {e}")
+                reply_container = card.locator("div._2ppV02M7")
+                if reply_container.count() > 0:
+                    company_reply = {}
+                    try:
+                        company_reply["replier_name"] = reply_container.locator(".DaMPj2-X").text_content(timeout=500).strip()
+                        raw_reply_date = reply_container.locator(".XRSXmsMZ").text_content(timeout=500).strip()
+                        company_reply["reply_date"] = convert_gis_date_format(raw_reply_date)
+                        company_reply["reply_text"] = reply_container.locator("._44uMQjyS").text_content(timeout=1000).strip()
+                        review_data["company_reply"] = company_reply
+                    except PlaywrightError:
+                        review_data["company_reply"] = None
+                else:
                     review_data["company_reply"] = None
-            else:
-                review_data["company_reply"] = None
 
-            # Only append if the source is 2GIS
-            if "2GIS" in review_data.get("source", ""):
-                review_data["scraped_at"] = datetime.now(timezone.utc).isoformat()
-                results.append(review_data)
-            else:
-                logger.info(f"Skipping review from source: {review_data.get('source')}")
-        except PlaywrightError as e:
-            logger.warning(f"Could not extract full details for a review: {e}")
-            # Instead of continuing the outer loop, log the error and potentially append partial data
-            # or ensure default values are set for missing fields.
-            # For now, we'll let it skip this specific card if a critical error occurs during basic field extraction.
-            
+                # Only append if the source is 2GIS
+                if "2GIS" in review_data.get("source", ""):
+                    review_data["scraped_at"] = datetime.now(timezone.utc).isoformat()
+                    review_data["branch_id"] = review_data.get("branch_id") or branch["branch_id"]
+                    results.append(review_data)
+            except PlaywrightError as e:
+                logger.warning(f"Could not extract full details for a review: {e}")
     return results
 
 def download_and_process_table(page: Page, digits: int, period: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -716,36 +762,35 @@ def get_statistics(job_data: dict) -> dict | None:
         logger.info(f"[get_statistics] Scraping complete for target_id={target_id}")
         return stats
 
+def _scrape_reviews(page: Page, target_id: str, mode: str = "summary") -> list[dict]:
+    """
+    Internal helper to scrape reviews for a company.
+    mode: 'summary' for branch ratings/review counts, 'full' for all review details.
+    """
+    if mode == "summary":
+        return get_rating_and_reviews(page, target_id)
+    elif mode == "full":
+        return get_reviewss(page, target_id)
+    else:
+        raise ValueError(f"Unknown mode for _scrape_reviews: {mode}")
+
 def get_reviews_data(job_data: dict) -> list[dict]:
     target_id = job_data.get('target_id')
-    
     headless = job_data.get('headless', False)
-    
     if target_id is None:
-        logger.error("[get_reviews] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for get_reviews.")
-    logger.info(f"[get_reviews] Scraping reviews for target_id={target_id}")
-    
+        logger.error("[get_reviews_data] 'target_id' is required in job_data")
+        raise ValueError("'target_id' is required in job_data for get_reviews_data.")
+    logger.info(f"[get_reviews_data] Scraping reviews summary for target_id={target_id}")
     with browser_context(headless=headless) as page:
-        branch_data_list = get_rating_and_reviews(page, str(target_id))
-        logger.info(f"[get_reviews] Scraping complete for target_id={target_id}")
-        return branch_data_list
+        return _scrape_reviews(page, str(target_id), mode="summary")
 
 def get_reviews(job_data: dict) -> list[dict]:
     target_id = job_data.get('target_id')
     headless = job_data.get('headless', False)
-    
     if target_id is None:
-        logger.error("[get_reviews_only] 'target_id' is required in job_data")
-        raise ValueError("'target_id' is required in job_data for get_reviews_only.")
-    logger.info(f"[get_reviews_only] Scraping all reviews for target_id={target_id}")
-    
+        logger.error("[get_reviews] 'target_id' is required in job_data")
+        raise ValueError("'target_id' is required in job_data for get_reviews.")
+    logger.info(f"[get_reviews] Scraping all reviews for target_id={target_id}")
     with browser_context(headless=headless) as page:
-        reviews_data = get_reviewss(page, str(target_id))
-        logger.info(f"[get_reviews_only] Scraping complete for target_id={target_id}")
-        return reviews_data
+        return _scrape_reviews(page, str(target_id), mode="full")
 
-def send_answers(job_data: dict):
-    target_id = job_data.get('target_id')
-    
-    
