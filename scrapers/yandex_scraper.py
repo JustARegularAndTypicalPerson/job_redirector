@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 #   $env:GIS_BROWSER_PATH = "C:\\Path\\To\\Browser\\chrome.exe"
 # Example for Linux/macOS:
 #   export GIS_BROWSER_PATH="/usr/bin/google-chrome"
-BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
-if not BROWSER_PATH:
-    raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
+# BROWSER_PATH = os.environ.get("GIS_BROWSER_PATH")
+# if not BROWSER_PATH:
+#     raise RuntimeError("GIS_BROWSER_PATH environment variable must be set to the browser executable path.")
 
 # Define a directory for persistent context.
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -590,7 +590,7 @@ def run(target_id: int, task_type: str, period: str | None = None, cookies: list
 
         # Add --start-minimized argument for Chromium
         browser_args = ["--start-minimized"]
-        browser = playwright_instance.chromium.launch_persistent_context(BROWSER_PATH, headless=headless, args=browser_args)
+        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args)
         if cookies: 
             browser.add_cookies(cookies)
 
