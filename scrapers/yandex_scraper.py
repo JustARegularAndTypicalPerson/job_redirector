@@ -563,7 +563,7 @@ def get_branch_competitors(page: Page, branch_id: int) -> List[Tuple[str, Any]]:
 
 
 
-def get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, Any]]:
+def _get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, Any]]:
     """
     Mock function to return sample review data for Yandex.
     In a real implementation, this would scrape review details from the page.
@@ -856,11 +856,11 @@ def get_reviews(job_data: dict) -> dict:
     headless = job_data.get('headless', False)
     logger.info(f"[get_reviews] Scraping reviews for target_id={target_id}, page_num={page_num}")
     with browser_context(headless=headless) as page:
-        reviews = get_reviews(page, target_id, page_num)
+        reviews = _get_reviews(page, target_id, page_num)
         logger.info(f"[get_reviews] Scraping complete for target_id={target_id}, page_num={page_num}")
         return {"target_id": target_id, "reviews": reviews}
     
-def get_unreaded_reviews(job_data: dict) -> dict:
+def get_unread_reviews(job_data: dict) -> dict:
     target_id = job_data.get('target_id')
     if target_id is None:
         logger.error("[get_unreaded_reviews] 'target_id' is required in job_data")

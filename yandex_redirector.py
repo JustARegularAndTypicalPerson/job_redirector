@@ -39,9 +39,9 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             return {"status": "success", "result": result, "error_message": ""}
         
         elif operation_type == "unread_reviews":
-            from scrapers.yandex_scraper import get_unreaded_reviews
+            from scrapers.yandex_scraper import get_unread_reviews
 
-            result = get_unreaded_reviews(job_data)
+            result = get_unread_reviews(job_data)
 
         elif operation_type == "send_answer":
             from scrapers.yandex_scraper import send_answer
