@@ -794,3 +794,113 @@ def get_reviews(job_data: dict) -> list[dict]:
     with browser_context(headless=headless) as page:
         return _scrape_reviews(page, str(target_id), mode="full")
 
+def send_answer(job_data: dict) -> dict:
+    """
+    Send an answer to a review on GIS for a specific branch and review.
+    Expects job_data to contain: branch_id, review_id (or unique text), answer_text, and optional headless.
+    """
+    company_id = job_data.get("target_id")
+    branch_id = job_data.get("branch_id")
+    review_id = job_data.get("review_id")  # This could be a unique review text or id
+    mark_as_main = job_data.get("mark_as_main", False)
+    answer_text = job_data.get("answer_text")
+    headless = job_data.get("headless", False)
+    if not branch_id or not review_id or not answer_text:
+        raise ValueError("branch_id, review_id, and answer_text are required in job_data")
+    with browser_context(headless=headless) as page:
+        url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id}"
+        page.goto(url)
+        handle_ads_by_clicking(page)
+        page.wait_for_timeout(10000)
+        review_blocks = page.locator("div.aYDODrXf._9tLQnNX3")
+        found = False
+        for i in range(review_blocks.count()):
+            review = review_blocks.nth(i)
+            page.wait_for_timeout(2000)
+            if review_id:
+                if review.get_attribute("data-review-id") == str(review_id):
+                    found = True
+                else:
+                    text = review.text_content()
+                    if review_id in (text or ""):
+                        found = True
+            if found:
+                try:
+                    answer_btn = review.get_by_text("Ответить", exact=True)
+                    answer_btn.click()
+                    page.wait_for_timeout(500)
+                    answer_input = page.locator("textarea.aQVcBlfz").first
+                    answer_input.fill(answer_text)
+                    if mark_as_main:
+                        mark_as_main_checkbox = page.locator("form > div._6eDir3vo > label > span > span")
+                        if mark_as_main_checkbox.is_visible():
+                            mark_as_main_checkbox.check()
+                    send_btn = page.get_by_text("Опубликовать", exact=True)
+                    # send_btn.click()
+                    page.wait_for_timeout(1000)
+                    return {"status": "success", "message": "Answer sent successfully."}
+                except PlaywrightError as e:
+                    raise RuntimeError(f"Failed to send answer: {e}")
+        raise RuntimeError("Review not found for given review_id.")
+
+def complain_about_a_review(job_data: dict) -> dict:
+    """Placeholder for complaining about a review on GIS."""
+    company_id = job_data.get("target_id")
+    branch_id = job_data.get("branch_id")
+    reason_text = job_data.get("reason_text")
+    
+    review_id = job_data.get("review_id")  # This could be a unique review text or id
+    
+    headless = job_data.get("headless", False)
+    
+    with browser_context(headless=headless) as page:
+        url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id}"
+        page.goto(url)
+        handle_ads_by_clicking(page)
+        
+        page.wait_for_timeout(10000)
+        
+        review_blocks = page.locator("div.aYDODrXf._9tLQnNX3")
+        found = False
+        for i in range(review_blocks.count()):
+            review = review_blocks.nth(i)
+            page.wait_for_timeout(2000)
+            if review_id:
+                if review.get_attribute("data-review-id") == str(review_id):
+                    found = True
+                else:
+                    text = review.text_content()
+                    if review_id in (text or ""):
+                        found = True
+        if found:
+            try:
+                complain_button = review.locator("div.O-S6ZpP2 > div > button")
+                complain_button.click()
+                page.wait_for_timeout(500)
+                
+                # Click the select to open dropdown
+                select_div = page.locator("div.select__select-9iHCB").last
+                select_div.click()
+                page.wait_for_timeout(500)
+                # Now select the option based on input parameter (e.g., reason_text)
+                # Assume reason_text is passed in job_data
+                if not reason_text:
+                    raise RuntimeError("No reason_text provided for complaint.")
+                # Find the dropdown option and click it
+                option = page.get_by_text(reason_text, exact=True)
+                if option.count() == 0:
+                    raise RuntimeError(f"Reason option '{reason_text}' not found in dropdown.")
+                option.click()
+                page.wait_for_timeout(500)
+                text_area = page.locator("div.km7FyPog > textarea")
+                text_area.fill(reason_text)
+                page.wait_for_timeout(500)
+                
+                send_btn = page.get_by_text("Отправить", exact=True)
+                # send_btn.click()
+                page.wait_for_timeout(1000)
+            except PlaywrightError as e:
+                raise RuntimeError(f"Failed to complain about review: {e}")
+        if not found:
+            raise RuntimeError("Review not found for given review_id.")
+        return {"status": "success", "message": "Complaint sent successfully."}

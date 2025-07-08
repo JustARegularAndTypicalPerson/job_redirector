@@ -38,10 +38,22 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             result = get_reviews(job_data)
             return {"status": "success", "result": result, "error_message": ""}
         
-        elif operation_type == "send_answers":
-            from scrapers.gis_scraper import send_answers
+        elif operation_type == "send_answer":
+            from scrapers.gis_scraper import send_answer
             
-            result = send_answers(job_data)
+            result = send_answer(job_data)
+            return {"status": "success", "result": result, "error_message": ""}
+        
+        elif operation_type == "complain_about_a_review":
+            from scrapers.gis_scraper import complain_about_a_review
+            
+            result = complain_about_a_review(job_data)
+            return {"status": "success", "result": result, "error_message": ""}
+        
+        elif operation_type == "mark_as_main":
+            from scrapers.gis_scraper import mark_as_main
+            
+            result = mark_as_main(job_data)
             return {"status": "success", "result": result, "error_message": ""}
         
         else:
