@@ -836,7 +836,7 @@ def send_answer(job_data: dict) -> dict:
                         if mark_as_main_checkbox.is_visible():
                             mark_as_main_checkbox.check()
                     send_btn = page.get_by_text("Опубликовать", exact=True)
-                    # send_btn.click()
+                    send_btn.click()
                     page.wait_for_timeout(1000)
                     return {"status": "success", "message": "Answer sent successfully."}
                 except PlaywrightError as e:
