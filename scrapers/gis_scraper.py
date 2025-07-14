@@ -150,9 +150,9 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
         page.wait_for_timeout(2000) # Allow page to settle
         try:
             # Ищем элемент, который является переключателем для списка филиалов.
+            page.wait_for_timeout(3000)
             toggle = page.locator(".mLSzlnkE")
             # Ждем его появления с таймаутом в 3 секунды.
-            toggle.wait_for(timeout=3000)
             branches_exist = True
             logger.info(f"Branch toggle detected for company {digits}.")
         except PlaywrightTimeoutError:
