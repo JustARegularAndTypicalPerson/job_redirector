@@ -557,6 +557,7 @@ def download_and_process_table(page: Page, digits: int, period: Optional[str] = 
             # `delete=False` позволяет нам вручную управлять удалением файла.
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 # Сохраняем загруженный файл во временное место.
+                page.wait_for_timeout(2000)
                 download.save_as(tmp.name)
                 temp_file_path = tmp.name # Сохраняем путь к временному файлу
             # Читаем XLSX файл с помощью pandas. `header=None` указывает, что у файла нет заголовка,
