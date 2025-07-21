@@ -105,8 +105,14 @@ def get_child_texts(page: Page, locator: Locator) -> List[str]:
 
 
 def get_all_digits(text: str) -> int | None:
-    m = regex.search(r"\d+", text)
-    return int(m.group()) if m else None
+    result_digits = "" # Создаем пустую строку для сбора цифр
+    for char in text:
+        if char.isdigit(): # Проверяем, является ли символ цифрой
+            result_digits += char # Если да, добавляем его к результату
+    if result_digits == "":
+        return None
+    return int(result_digits)
+
 
 def get_all_letters(text: str) -> str:
     return ''.join(regex.findall(r'\p{L}', text, regex.U))
@@ -335,7 +341,7 @@ def get_branch_statistics(page: Page, branch_id: int, period: str | None) -> Lis
         counter_transitions_to_the_site = 0
         counter_phone_clicks = 0
         for i in page.locator('div.stat-box-kind').all():
-            
+
             texts = get_child_texts(page, i)
             if  "переходы" in get_all_letters(texts[0]):
                 key = "direct transitions"
@@ -557,7 +563,7 @@ def get_branch_competitors(page: Page, branch_id: int) -> List[Tuple[str, Any]]:
 
 
 
-def get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, Any]]:
+def _get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, Any]]:
     """
     Mock function to return sample review data for Yandex.
     In a real implementation, this would scrape review details from the page.
@@ -689,33 +695,35 @@ def write_answer_part(page: Page, id : int, nickname: str, review_text : str, an
     check_connection(page)
     if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
         page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    unreaded_reviews = page.locator("div.Review Review_unread").all()
+    unreaded_reviews = page.locator("div.ReviewsPage-ReviewsList").locator(":scope > *").all()
     for unreaded_review in unreaded_reviews:
         unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
         try:
-            unreaded_review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
+            page.wait_for_selector("div.Review-Text > span", timeout=3000)
 
-        # Scroll into view and click via JS
+            # Scroll into view and click via JS
             page.eval_on_selector(
             ".Review-ReadMoreLink",
             "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
+            )
+            
             page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.click()"
-        )
-        except:
-            pass
+                ".Review-ReadMoreLink",
+                "el => el.click()"
+            )
+                
+        except Exception as e:
+            logger.warning(f"Failed to expand review text for nickname '{unreaded_review_nickname}': {e}", exc_info=True)
         unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower() == nickname.lower() and unreaded_review_review_text.lower() == review_text.lower():
-            unreaded_review.eval_on_selector(
-            "span.Textarea-Wrap",
+        if unreaded_review_nickname.lower().strip() == nickname.lower().strip() and unreaded_review_review_text.lower().strip() == review_text.lower().strip():
+            unreaded_review.evaluate(
             "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
         )
             unreaded_review.locator("span.Textarea-Wrap").locator("textarea.Textarea-Control").fill(answer_text)
             page.wait_for_timeout(1000)
             unreaded_review.locator("span.ya-business-yabs-button__icon").nth(0).click()
             break
+    return "Answer written successfully or review not found."
 
 
 def complain_about_a_review_part(page: Page, id : int, nickname: str, review_text : str, complain_text: str) -> str:
@@ -723,11 +731,11 @@ def complain_about_a_review_part(page: Page, id : int, nickname: str, review_tex
     check_connection(page)
     if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
         page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    unreaded_reviews = page.locator("div.Review Review_unread").all()
+    unreaded_reviews = page.locator("div.ReviewsPage-ReviewsList").locator(":scope > *").all()
     for unreaded_review in unreaded_reviews:
         unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
         try:
-            unreaded_review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
+            unreaded_review.wait_for(timeout=3000)
 
         # Scroll into view and click via JS
             page.eval_on_selector(
@@ -741,23 +749,23 @@ def complain_about_a_review_part(page: Page, id : int, nickname: str, review_tex
         except:
             pass
         unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower() == nickname.lower() and unreaded_review_review_text.lower() == review_text.lower():
-            unreaded_review.locator("span.Icon Icon_depot_ErrorOutline16Neoblue Help-Icon").click()
-            page.wait_for_selector("taxtarea.ya-business-ui-textarea__control ym-record-keys", timeout= 3000)
-            page.locator("taxtarea.ya-business-ui-textarea__control ym-record-keys").fill(complain_text)
+        if unreaded_review_nickname.lower().strip() == nickname.lower().strip() and unreaded_review_review_text.lower().strip() == review_text.lower().strip():
+            unreaded_review.locator("span.Link.Review-Icon.Review-Icon_type_complaint").click()
+            page.wait_for_timeout(3000)
+            page.locator("div.ComplaintModal.ComplaintModal_visible > div.ComplaintModal-Textarea > span > span > label > textarea").fill(complain_text)
             page.wait_for_selector("span.ya-business-yabs-button__text", timeout=3000)
-            page.locator("span.ya-business-yabs-button__text").click()
-
+            page.locator("div.ComplaintModal.ComplaintModal_visible > div.ComplaintModal-Controls > button.ya-business-yabs-button.ya-business-yabs-button_view_action.ya-business-yabs-button_size_m.ya-business-yabs-button_width_available.ya-business-yabs-button_theme_on-white.ComplaintModal-Button.ComplaintModal-Button_type_submit").click()
+            break
 def mark_as_readed_part(page: Page, id : int, nickname: str, review_text : str) -> str:
     page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
     check_connection(page)
     if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
         page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    unreaded_reviews = page.locator("div.Review Review_unread").all()
+    unreaded_reviews = page.locator("div.ReviewsPage-ReviewsList").locator(":scope > *").all()
     for unreaded_review in unreaded_reviews:
         unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
         try:
-            unreaded_review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
+            unreaded_review.wait_for(timeout=3000)
 
         # Scroll into view and click via JS
             page.eval_on_selector(
@@ -771,12 +779,10 @@ def mark_as_readed_part(page: Page, id : int, nickname: str, review_text : str) 
         except:
             pass
         unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower() == nickname.lower() and unreaded_review_review_text.lower() == review_text.lower():
-            unreaded_review.locator("span.Icon Icon_depot_ToDo16Neoblue Help-Icon").click()
-
-
-
-
+        if unreaded_review_nickname.lower().strip() == nickname.lower().strip() and unreaded_review_review_text.lower().strip() == review_text.lower().strip():
+            unreaded_review.locator("div.Review-Icons > span.Link.Review-Icon.Review-Icon_type_read > span > span").click()
+            break
+    return "Review marked as read successfully or review not found."
 
 @contextmanager
 def browser_context(headless: bool = False):
@@ -850,11 +856,11 @@ def get_reviews(job_data: dict) -> dict:
     headless = job_data.get('headless', False)
     logger.info(f"[get_reviews] Scraping reviews for target_id={target_id}, page_num={page_num}")
     with browser_context(headless=headless) as page:
-        reviews = get_reviews(page, target_id, page_num)
+        reviews = _get_reviews(page, target_id, page_num)
         logger.info(f"[get_reviews] Scraping complete for target_id={target_id}, page_num={page_num}")
         return {"target_id": target_id, "reviews": reviews}
     
-def get_unreaded_reviews(job_data: dict) -> dict:
+def get_unread_reviews(job_data: dict) -> dict:
     target_id = job_data.get('target_id')
     if target_id is None:
         logger.error("[get_unreaded_reviews] 'target_id' is required in job_data")
@@ -867,23 +873,27 @@ def get_unreaded_reviews(job_data: dict) -> dict:
         return {"target_id": target_id, "reviews": unreaded_reviews}
 
 
-def write_answer(job_data: dict) -> str:
+def send_answer(job_data: dict) -> str:
     target_id = job_data.get('target_id')
     if target_id is None:
         logger.error("[write_answer] 'target_id' is required in job_data")
         raise ValueError("'target_id' is required in job_data for write_answer.")
+    
     nickname = job_data.get('nickname')
     if nickname is None:
         logger.error("[write_answer] 'nickname' is required in job_data")
         raise ValueError("'nickname' is required in job_data for write_answer.")
+    
     review_text = job_data.get('review_text')
     if review_text is None:
         logger.error("[write_answer] 'review_text' is required in job_data")
         raise ValueError("'review_text' is required in job_data for write_answer.")
+    
     answer_text = job_data.get('answer_text')
     if answer_text is None:
         logger.error("[write_answer] 'answer_text' is required in job_data")
         raise ValueError("'answer_text' is required in job_data for write_answer.")
+    
     page_num = job_data.get('page_num', 1)
     headless = job_data.get('headless', False)
     logger.info(f"[write_answer] Scraping all unreaded reviews for target_id={target_id}")
@@ -917,7 +927,7 @@ def complain_about_a_review(job_data: dict) -> str:
         logger.info(f"[complain_about_a_review] Succesfull writed complain for target_id={target_id}")
         return f"[complain_about_a_review] Succesfull writed complain for target_id={target_id}"
 
-def mark_as_readed(job_data: dict) -> str:
+def mark_as_read(job_data: dict) -> str:
     target_id = job_data.get('target_id')
     if target_id is None:
         logger.error("[mark_as_readed] 'target_id' is required in job_data")
