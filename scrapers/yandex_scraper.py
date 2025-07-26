@@ -242,13 +242,13 @@ def get_unreaded_review_data_from_page(page: Page, page_num: int, id: int, page_
         review_class_attr = review.get_attribute("class") or ""
         review_is_read = "Review_unread" not in review_class_attr
         try:
-            review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
+            page.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
         # Scroll into view and click via JS
-            review.eval_on_selector(
+            page.eval_on_selector(
             ".Review-ReadMoreLink",
             "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
         )
-            review.eval_on_selector(
+            page.eval_on_selector(
             ".Review-ReadMoreLink",
             "el => el.click()"
         )        
@@ -581,7 +581,8 @@ def _get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str,
 
     if num_of_reviews_int is not None and num_of_reviews_int > reviews_per_page:
         pagination_pages_locator = page.locator("div.Pagination-Pages")
-        if pagination_pages_locator.is_visible(timeout=3000):
+        page.wait_for_timeout(5000)
+        if pagination_pages_locator.is_visible():
             pagination_locator_texts = get_child_texts(page, pagination_pages_locator)
             list_of_paginations_nums = []
             for i_text in pagination_locator_texts:
