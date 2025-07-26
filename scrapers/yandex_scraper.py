@@ -121,7 +121,7 @@ def get_all_letters(text: str) -> str:
 def fill_period(page: Page, period: str | None = None):
     try:
         span = page.get_by_text("Период", exact=True)
-        span.wait_for(state="visible", timeout=5000)
+        span.wait_for(state="visible")
     except Exception:
         check_for_captcha(page)
         raise NotFound("Period selector not found.")
@@ -142,7 +142,7 @@ def check_connection(page: Page):
 def select_grouping(page: Page):
     try:
         span = page.get_by_text("Группировка", exact=True)
-        span.wait_for(state="visible", timeout=5000)
+        span.wait_for(state="visible")
     except Exception:
         check_for_captcha(page)
         raise NotFound("Grouping selector not found.")
@@ -242,7 +242,7 @@ def get_unreaded_review_data_from_page(page: Page, page_num: int, id: int, page_
         review_class_attr = review.get_attribute("class") or ""
         review_is_read = "Review_unread" not in review_class_attr
         try:
-            review.wait_for_selector(".Review-ReadMoreLink", timeout=3000)
+            review.wait_for(timeout=3000)
         # Scroll into view and click via JS
             review.eval_on_selector(
             ".Review-ReadMoreLink",
@@ -266,21 +266,21 @@ def get_unreaded_review_data_from_page(page: Page, page_num: int, id: int, page_
             # Only click to expand if it's not already expanded or if necessary
             # This logic might need adjustment based on how "read" reviews are displayed
             hide_button = review.locator("span.BusinessResponseSaved-HideButton_top")
-            if hide_button.is_visible(timeout=500): # Check if it's collapsible (i.e., expanded)
+            if hide_button.is_visible(): # Check if it's collapsible (i.e., expanded)
                 try:
                     hide_button.click(timeout=500) # Click to potentially reveal or ensure state
                 except Exception as e:
                     logger.debug(f"Could not click hide button for review answer: {e}")
             
             response_timestamp_locator = review.locator("span.BusinessResponseSaved-ResponseTimestamp")
-            if response_timestamp_locator.is_visible(timeout=1000): # Increased timeout
+            if response_timestamp_locator.is_visible(): # Increased timeout
                 data_of_answer = convert_date_format(response_timestamp_locator.text_content())
                 text_of_answer = review.locator("div.ResponseTextContent, div.BusinessResponseSaved-ResponseTextContent").text_content(timeout=1000)
         
         all_photoes_src_list = []
         # Simpler selector for review tiles, assuming they are direct children or identifiable
         photo_tile_selector = "div.Review-Tile" # Adjusted selector
-        if review.locator(photo_tile_selector).first.is_visible(timeout=500): # Check visibility of the first potential tile
+        if review.locator(photo_tile_selector).first.is_visible(): # Check visibility of the first potential tile
             all_photoes_div_locators = review.locator(photo_tile_selector).all()
             for i in all_photoes_div_locators:
                 all_photoes_src_list.append(extract_url_from_background_image(i.get_attribute("style")).replace("&quot;", ""))
@@ -581,7 +581,7 @@ def _get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str,
 
     if num_of_reviews_int is not None and num_of_reviews_int > reviews_per_page:
         pagination_pages_locator = page.locator("div.Pagination-Pages")
-        if pagination_pages_locator.is_visible(timeout=3000):
+        if pagination_pages_locator.is_visible():
             pagination_locator_texts = get_child_texts(page, pagination_pages_locator)
             list_of_paginations_nums = []
             for i_text in pagination_locator_texts:
@@ -618,21 +618,21 @@ def _get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str,
             # Only click to expand if it's not already expanded or if necessary
             # This logic might need adjustment based on how "read" reviews are displayed
             hide_button = review.locator("span.BusinessResponseSaved-HideButton_top")
-            if hide_button.is_visible(timeout=500): # Check if it's collapsible (i.e., expanded)
+            if hide_button.is_visible(): # Check if it's collapsible (i.e., expanded)
                 try:
                     hide_button.click(timeout=500) # Click to potentially reveal or ensure state
                 except Exception as e:
                     logger.debug(f"Could not click hide button for review answer: {e}")
             
             response_timestamp_locator = review.locator("span.BusinessResponseSaved-ResponseTimestamp")
-            if response_timestamp_locator.is_visible(timeout=1000): # Increased timeout
+            if response_timestamp_locator.is_visible(): # Increased timeout
                 data_of_answer = convert_date_format(response_timestamp_locator.text_content())
                 text_of_answer = review.locator("div.ResponseTextContent, div.BusinessResponseSaved-ResponseTextContent").text_content(timeout=1000)
         
         all_photoes_src_list = []
         # Simpler selector for review tiles, assuming they are direct children or identifiable
         photo_tile_selector = "div.Review-Tile" # Adjusted selector
-        if review.locator(photo_tile_selector).first.is_visible(timeout=500): # Check visibility of the first potential tile
+        if review.locator(photo_tile_selector).first.is_visible(): # Check visibility of the first potential tile
             all_photoes_div_locators = review.locator(photo_tile_selector).all()
             for i in all_photoes_div_locators:
                 all_photoes_src_list.append(extract_url_from_background_image(i.get_attribute("style")).replace("&quot;", ""))
