@@ -28,9 +28,10 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         
         elif operation_type == "reviews":
             from scrapers.yandex_scraper import get_reviews
+            smth = get_reviews(job_data)
+            result = smth            
 
-            result = get_reviews(job_data)            
-
+            return {"status": "success", "result": result, "error_message": ""}
         elif operation_type == "competitors":
             from scrapers.yandex_scraper import get_competitors
 

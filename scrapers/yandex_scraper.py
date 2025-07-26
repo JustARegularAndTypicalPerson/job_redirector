@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Tuple, List
 from werkzeug.exceptions import HTTPException, NotFound, BadRequest, InternalServerError
 from playwright.sync_api import Page, Locator, sync_playwright, BrowserContext
@@ -563,7 +564,7 @@ def get_branch_competitors(page: Page, branch_id: int) -> List[Tuple[str, Any]]:
 
 
 
-def _get_reviews(page: Page, target_id: int, page_num: int =1) -> List[Dict[str, Any]]:
+def _get_reviews(page: Page, target_id: int, page_num: int =1) -> dict:
     """
     Mock function to return sample review data for Yandex.
     In a real implementation, this would scrape review details from the page.

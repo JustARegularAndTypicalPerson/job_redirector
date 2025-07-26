@@ -5,7 +5,7 @@ from gis_redirector import run_gis_operation
 
 logger = logging.getLogger(__name__)
 
-def run_job(job_id: str, job_data: dict) -> Dict[str, Any]:
+def run_job(job_id: str, job_data: dict) -> dict:
     job_type = job_data.get("scraper_type")
     if not job_type:
         logger.error("Job data missing 'scraper_type'", extra={"job_id": job_id})
