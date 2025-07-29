@@ -431,6 +431,7 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
     branches = _get_all_branch_review_urls(page, digits)
     for branch in branches:
         page.goto(branch["url"])
+        page.wait_for_timeout(1000)
         handle_ads_by_clicking(page)
         page.wait_for_timeout(2000)
         review_card_selector = "div.aYDODrXf._9tLQnNX3"
@@ -438,6 +439,7 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
         max_attempts = 15
         for attempt in range(max_attempts):
             initial_review_count = page.locator(review_card_selector).count()
+            page.wait_for_timeout(300)
             load_more_button = page.locator(load_more_button_selector)
             if load_more_button.is_visible():
                 try:
@@ -450,53 +452,57 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
                 page.keyboard.press("End")
                 page.wait_for_timeout(1000)
             current_review_count = page.locator(review_card_selector).count()
+            page.wait_for_timeout(300)
             if current_review_count == initial_review_count:
                 break
+        page.wait_for_timeout(1000)
         review_cards = page.locator(review_card_selector).all()
+        page.wait_for_timeout(300)
         for card in review_cards:
             review_data = {}
             try:
                 review_data["sender_name"] = card.locator(".DaMPj2-X").first.text_content(timeout=500).strip()
-                
+                page.wait_for_timeout(200)
+
                 raw_date = card.locator(".XRSXmsMZ").first.text_content(timeout=500).strip()
+                page.wait_for_timeout(200)
                 review_data["date"] = convert_gis_date_format(raw_date)
-                
+
                 review_data["source"] = card.locator(".qyojshn0").text_content(timeout=500).strip()
-                
-                # More specific selector for the main review text
-                # It targets the div._44uMQjyS that is a child of the div with "overflow: hidden"
+                page.wait_for_timeout(200)
+
                 main_review_text_element = card.locator("div[style*='overflow: hidden'] > ._44uMQjyS")
                 if main_review_text_element.count() > 0:
                     review_data["text"] = main_review_text_element.first.text_content(timeout=1000).strip()
                 else:
-                    review_data["text"] = None # Or handle as an error/warning
-                # Extract branch address if present
+                    review_data["text"] = None
+                page.wait_for_timeout(200)
+
                 branch_address_element = card.locator("a.YUUmvmnL")
                 if branch_address_element.count() > 0:
                     branch_address_text = branch_address_element.text_content(timeout=500).strip()
+                    page.wait_for_timeout(200)
                     review_data["branch_address"] = branch_address_text
                     href = branch_address_element.get_attribute("href")
+                    page.wait_for_timeout(200)
                     if href:
-                        # Regex to find two numbers in the path, e.g., /orgs/NUMBER1/reviews/NUMBER2
                         match = re.search(r"/orgs/(\d+)/reviews/(\d+)", href)
                         if match:
-                            review_data["branch_id"] = match.group(2) # The second captured group is the branch_id
+                            review_data["branch_id"] = match.group(2)
                         else:
                             review_data["branch_id"] = None
                 else:
                     review_data["branch_address"] = None
                     review_data["branch_id"] = branch["branch_id"]
-                
-                # Extract rating from style attribute (width of stars)
+
                 try:
                     rating_front_element = card.locator(".rating__front-5nKiy")
                     style_attr = rating_front_element.get_attribute("style", timeout=500)
+                    page.wait_for_timeout(200)
                     if style_attr:
                         width_match = re.search(r"width:\s*(\d+)px;", style_attr)
                         if width_match:
-                            # Assuming 1 star = 18px width (5 stars = 90px)
-                            # This might need adjustment based on actual star rendering
-                            rating_value = int(width_match.group(1)) / 18.0 
+                            rating_value = int(width_match.group(1)) / 18.0
                             review_data["rating"] = round(rating_value, 1)
                         else:
                             review_data["rating"] = None
@@ -504,13 +510,16 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
                         review_data["rating"] = None
                 except PlaywrightError:
                     review_data["rating"] = None
+                page.wait_for_timeout(200)
 
                 reply_container = card.locator("div._2ppV02M7")
                 if reply_container.count() > 0:
                     company_reply = {}
                     try:
                         company_reply["replier_name"] = reply_container.locator(".DaMPj2-X").text_content(timeout=500).strip()
+                        page.wait_for_timeout(200)
                         raw_reply_date = reply_container.locator(".XRSXmsMZ").text_content(timeout=500).strip()
+                        page.wait_for_timeout(200)
                         company_reply["reply_date"] = convert_gis_date_format(raw_reply_date)
                         company_reply["reply_text"] = reply_container.locator("._44uMQjyS").text_content(timeout=1000).strip()
                         review_data["company_reply"] = company_reply
@@ -518,14 +527,15 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
                         review_data["company_reply"] = None
                 else:
                     review_data["company_reply"] = None
+                page.wait_for_timeout(200)
 
-                # Only append if the source is 2GIS
                 if "2GIS" in review_data.get("source", ""):
                     review_data["scraped_at"] = datetime.now(timezone.utc).isoformat()
                     review_data["branch_id"] = review_data.get("branch_id") or branch["branch_id"]
                     results.append(review_data)
             except PlaywrightError as e:
                 logger.warning(f"Could not extract full details for a review: {e}")
+                page.wait_for_timeout(300)
     return results
 
 def download_and_process_table(page: Page, digits: int, period: Optional[str] = None) -> Optional[Dict[str, Any]]:
