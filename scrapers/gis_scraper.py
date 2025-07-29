@@ -802,14 +802,16 @@ def send_answer(job_data: dict) -> dict:
     """
     company_id = job_data.get("target_id")
     branch_id = job_data.get("branch_id")
-    review_id = job_data.get("review_id")  # This could be a unique review text or id
+    review_name = job_data.get("review_name")  # This could be a unique review text or id
+    review_text = job_data.get("review_text")
+    review_date = job_data.get("review_date")
     mark_as_main = job_data.get("mark_as_main", False)
     answer_text = job_data.get("answer_text")
     headless = job_data.get("headless", False)
-    if not branch_id or not review_id or not answer_text:
+    if not review_name or not answer_text:
         raise ValueError("branch_id, review_id, and answer_text are required in job_data")
     with browser_context(headless=headless) as page:
-        url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id}"
+        url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id if branch_id else ''}"
         page.goto(url)
         handle_ads_by_clicking(page)
         page.wait_for_timeout(10000)
@@ -818,12 +820,12 @@ def send_answer(job_data: dict) -> dict:
         for i in range(review_blocks.count()):
             review = review_blocks.nth(i)
             page.wait_for_timeout(2000)
-            if review_id:
-                if review.get_attribute("data-review-id") == str(review_id):
+            if review_name:
+                if review.get_attribute("data-review-id") == str(review_name):
                     found = True
                 else:
                     text = review.text_content()
-                    if review_id in (text or ""):
+                    if review_name in (text or "") and review_text in (text or "") and review_date in (text or ""):
                         found = True
             if found:
                 try:
