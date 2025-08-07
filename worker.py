@@ -174,24 +174,48 @@ def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[st
         set_job_id(None)  # Clear job_id after job
 
 
+# --- Queue Selection Helpers ---
+def get_allowed_queues(worker_id: str) -> list:
+    """Fetch all allowed queue names from Redis set 'queues:all', excluding forbidden ones for this worker."""
+    queue_names = redis_client.smembers("queues:all")
+    allowed_queues = []
+    for name in queue_names:
+        if not redis_client.sismember(f"queue:{name}:forbidden_workers", worker_id):
+            allowed_queues.append(f"jobs:queue:{name}")
+    # Always include the default queue if not forbidden
+    if not redis_client.sismember("queue:default:forbidden_workers", worker_id):
+        allowed_queues.append("jobs:queue")
+    return allowed_queues
+
+
 def main_loop() -> None:
     processing_queue_key: str = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
-    logger.info(f"Worker started. Listening for jobs on '{JOB_QUEUE_KEY}'...")
+    logger.info(f"Worker started. Listening for jobs on all allowed queues...")
     while True:
-        # --- Check if worker is forbidden ---
+        # --- Check if worker is globally forbidden ---
         if is_worker_forbidden():
             logger.warning(f"Worker {WORKER_ID} is forbidden from accepting jobs. Sleeping for 30s.")
             time.sleep(30)
             continue
 
+        allowed_queues = get_allowed_queues(WORKER_ID)
+        if not allowed_queues:
+            logger.warning(f"Worker {WORKER_ID} is not allowed on any queue. Sleeping for 30s.")
+            time.sleep(30)
+            continue
+
         job_id = None
         try:
-            job_id = redis_client.brpoplpush(JOB_QUEUE_KEY, processing_queue_key, timeout=QUEUE_TIMEOUT)
-            if job_id is None:
+            # Use BRPOP to atomically pop from all allowed queues
+            brpop_result = redis_client.brpop(allowed_queues, timeout=QUEUE_TIMEOUT)
+            if not brpop_result:
                 continue
+            queue_name, job_id = brpop_result
+            # Push job_id to processing queue for this worker
+            redis_client.lpush(processing_queue_key, job_id)
 
             job_hash_key = f"{JOB_HASH_PREFIX}{job_id}"
-            logger.info(f"Received job {job_id}")
+            logger.info(f"Received job {job_id} from {queue_name}")
 
             job_data = redis_client.hgetall(job_hash_key)
             if not job_data:
@@ -212,17 +236,20 @@ def main_loop() -> None:
                 redis_client.lrem(processing_queue_key, 1, job_id)
                 continue
 
-            # Safety check: Don't re-process a completed/failed/cancelled job if it somehow re-appears in the queue.
+            # Don't re-process completed/failed/cancelled jobs
             if job_data.get("status") in ["completed", "failed", "cancelled"]:
                 logger.warning(f"Job {job_id} has status '{job_data.get('status')}' but was in queue. Skipping.")
                 redis_client.lrem(processing_queue_key, 1, job_id)
                 continue
 
+            # --- Mark job as in_progress and register worker ---
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
             redis_client.hset(job_hash_key, mapping={
-                "status": "running", # Changed from 'in_progress'
+                "status": "in_progress",
                 "worker_id": WORKER_ID,
-                "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                "started_at": now_iso
             })
+            redis_client.sadd("workers:all", WORKER_ID)
 
             result_data, error_message = execute_job(job_id, job_data)
 
@@ -237,7 +264,7 @@ def main_loop() -> None:
             redis_client.hset(job_hash_key, mapping=completion_payload)
             logger.info(f"Finished job {job_id} with status: {completion_payload['status']}")
             redis_client.lrem(processing_queue_key, 1, job_id)
-            
+
             recover_interrupted_jobs()
         except redis.exceptions.RedisError as e:
             logger.error(f"Redis error: {e}. Will retry connection in 5 seconds.", exc_info=True)
