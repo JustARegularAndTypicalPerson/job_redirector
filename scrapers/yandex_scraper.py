@@ -697,6 +697,7 @@ def write_answer_part(page: Page, id : int, nickname: str, review_text : str, an
     check_connection(page)
     if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
         page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
+    page.wait_for_timeout(3000)
     unreaded_reviews = page.locator("div.ReviewsPage-ReviewsList").locator(":scope > *").all()
     for unreaded_review in unreaded_reviews:
         unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
@@ -721,7 +722,8 @@ def write_answer_part(page: Page, id : int, nickname: str, review_text : str, an
             unreaded_review.evaluate(
             "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
         )
-            unreaded_review.locator("span.Textarea-Wrap").locator("textarea.Textarea-Control").fill(answer_text)
+            unreaded_review.locator("textarea.ya-business-ui-textarea__control").fill(answer_text)
+
             page.wait_for_timeout(1000)
             unreaded_review.locator("span.ya-business-yabs-button__icon").nth(0).click()
             break
@@ -757,7 +759,9 @@ def complain_about_a_review_part(page: Page, id : int, nickname: str, review_tex
             page.locator("div.ComplaintModal.ComplaintModal_visible > div.ComplaintModal-Textarea > span > span > label > textarea").fill(complain_text)
             page.wait_for_selector("span.ya-business-yabs-button__text", timeout=3000)
             page.locator("div.ComplaintModal.ComplaintModal_visible > div.ComplaintModal-Controls > button.ya-business-yabs-button.ya-business-yabs-button_view_action.ya-business-yabs-button_size_m.ya-business-yabs-button_width_available.ya-business-yabs-button_theme_on-white.ComplaintModal-Button.ComplaintModal-Button_type_submit").click()
-            break
+            return "Complained successfully"
+    return "Review was not found"
+
 def mark_as_readed_part(page: Page, id : int, nickname: str, review_text : str) -> str:
     page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
     check_connection(page)
