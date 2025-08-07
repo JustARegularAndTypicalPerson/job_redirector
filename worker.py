@@ -251,6 +251,22 @@ def main_loop() -> None:
             })
             redis_client.sadd("workers:all", WORKER_ID)
 
+            # Infer scraper_type and operation_type from queue name
+            # jobs:queue:yandex:statistics → yandex, statistics
+            if queue_name == "jobs:queue" or queue_name.endswith(":default"):
+                scraper_type = "gis"
+                operation_type = job_data.get("operation_type")
+            else:
+                parts = queue_name.split(":")
+                if len(parts) >= 4:
+                    scraper_type = parts[2]
+                    operation_type = parts[3]
+                else:
+                    scraper_type = parts[-1]
+                    operation_type = job_data.get("operation_type")
+            job_data["scraper_type"] = scraper_type
+            job_data["operation_type"] = operation_type
+
             result_data, error_message = execute_job(job_id, job_data)
 
             completion_payload = {
