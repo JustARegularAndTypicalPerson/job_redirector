@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, Any
+from scrapers.yandex_scraper import CaptchaRequired
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         raise ValueError("Job data missing 'operation_type' (should be inferred from queue)")
 
     try:
+        # Import here to avoid circular dependency issues if scrapers log
         logger.info(f"[Yandex] Running operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
         result = None
         
@@ -60,10 +62,31 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             
             raise ValueError(f"Unknown operation '{operation_type}'")
-        
+
+        is_empty = False
+        if operation_type == "statistics":
+            stats = result.get("statistics", [])
+            if not stats or all(v == 'empty_value' for k, v in stats):
+                is_empty = True
+        elif operation_type == "competitors":
+            if not result.get("competitors"):
+                is_empty = True
+        elif operation_type == "reviews":
+            reviews_data = result.get("reviews", {})
+            if not reviews_data.get("reviews_info_list"):
+                is_empty = True
+        elif operation_type == "unread_reviews":
+            if not result.get("reviews"):
+                is_empty = True
+
+        if is_empty:
+            logger.warning(f"Yandex operation '{operation_type}' for job {job_id} returned empty/zero result.", extra={"job_id": job_id, "operation_type": operation_type})
+            return {"status": "warning", "result": result, "error_message": "Operation completed successfully but returned no data."}
+
         return {"status": "success", "result": result, "error_message": ""}
-    
+    except CaptchaRequired as e:
+        logger.warning(f"Captcha required for Yandex operation job {job_id}: {e.captcha_url}", extra={"job_id": job_id, "operation_type": operation_type, "captcha_url": e.captcha_url})
+        return {"status": "captcha_required", "result": {"captcha_url": e.captcha_url}, "error_message": str(e)}
     except Exception as e:
         logger.exception(f"Exception in Yandex operation for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
-
         return {"status": "failed", "result": None, "error_message": str(e)}

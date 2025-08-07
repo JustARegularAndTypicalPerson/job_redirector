@@ -152,24 +152,27 @@ def recover_interrupted_jobs() -> None:
     logger.warning("Recovery complete.")
 
 
-def execute_job(job_id: str, job_data: dict) -> Tuple[Optional[str], Optional[str]]:
+def execute_job(job_id: str, job_data: dict) -> dict:
+    """
+    Executes the job by calling the appropriate redirector.
+    Returns the result dictionary from the redirector.
+    """
     set_job_id(job_id)  # Set job_id for log context
-    logger.info(f"Executing job {job_id}: {job_data.get('scraper')} - {job_data.get('operation_type')}")
+    logger.info(f"Executing job {job_id}: {job_data.get('scraper_type')} - {job_data.get('operation_type')}")
     try:
-        util_result: dict = run_job(job_id, job_data)
+        result_dict: dict = run_job(job_id, job_data)
 
-        if not util_result:
+        if not result_dict:
             raise ValueError("Job execution returned no result.")
         
-        return json.dumps(util_result), None
+        return result_dict
     except Exception as e:
-        logger.exception(f"Job {job_id} failed: {e}")
-        result: dict = {
+        logger.exception(f"Job {job_id} failed during execution: {e}")
+        return {
             "status": "failed",
-            "data": util_result if 'util_result' in locals() else None,
-            "error_message": str(e)
+            "result": None,
+            "error_message": f"Unhandled exception in worker: {str(e)}"
         }
-        return json.dumps(result, ensure_ascii=False), str(e)
     finally:
         set_job_id(None)  # Clear job_id after job
 
@@ -267,15 +270,28 @@ def main_loop() -> None:
             job_data["scraper_type"] = scraper_type
             job_data["operation_type"] = operation_type
 
-            result_data, error_message = execute_job(job_id, job_data)
+            job_outcome = execute_job(job_id, job_data)
+
+            internal_status = job_outcome.get("status", "failed")
+            result_data = job_outcome.get("result")
+            error_message = job_outcome.get("error_message", "")
+
+            # Map internal status to final job status in Redis
+            if internal_status == "success":
+                final_job_status = "completed"
+            elif internal_status in ["warning", "captcha_required", "failed"]:
+                final_job_status = internal_status
+            else:  # any other unknown status from redirector
+                final_job_status = "failed"
+                if not error_message:
+                    error_message = f"Job finished with unhandled internal status: {internal_status}"
 
             completion_payload = {
-                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "status": final_job_status,
+                "result_data": json.dumps(result_data, ensure_ascii=False) if result_data is not None else None,
+                "error_message": str(error_message) if error_message is not None else ""
             }
-            if error_message:
-                completion_payload.update({"status": "failed", "error_message": error_message})
-            else:
-                completion_payload.update({"status": "completed", "result_data": result_data, "error_message": ""})
 
             redis_client.hset(job_hash_key, mapping=completion_payload)
             logger.info(f"Finished job {job_id} with status: {completion_payload['status']}")
