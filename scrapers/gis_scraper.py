@@ -435,25 +435,31 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
         handle_ads_by_clicking(page)
         page.wait_for_timeout(2000)
         review_card_selector = "div.aYDODrXf._9tLQnNX3"
-        load_more_button_selector = "button.button__basic-1agAe:has-text('Загрузить ещё')"
+        load_more_button_selector = "button[data-n='wat-kit-button']:has-text('Загрузить ещё')"
         max_attempts = 15
         for attempt in range(max_attempts):
             initial_review_count = page.locator(review_card_selector).count()
-            page.wait_for_timeout(300)
+
+            # Scroll to the bottom of the page to reveal the 'load more' button
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1500)  # Wait for any lazy-loaded content
+
             load_more_button = page.locator(load_more_button_selector)
             if load_more_button.is_visible():
                 try:
                     load_more_button.click(timeout=5000)
-                    page.wait_for_timeout(2000)
-                except PlaywrightError:
-                    page.keyboard.press("End")
-                    page.wait_for_timeout(1000)
+                    page.wait_for_load_state('networkidle', timeout=7000)
+                except PlaywrightTimeoutError:
+                    logger.warning("Load more button was visible but failed to load new content.")
+                    break  # Exit loop if click/load fails
             else:
-                page.keyboard.press("End")
-                page.wait_for_timeout(1000)
+                logger.info("Load more button not found. Assuming all reviews are loaded.")
+                break
+
+            # Check if new reviews were loaded
             current_review_count = page.locator(review_card_selector).count()
-            page.wait_for_timeout(300)
             if current_review_count == initial_review_count:
+                logger.info("Review count did not increase after click. Assuming all reviews are loaded.")
                 break
         page.wait_for_timeout(1000)
         review_cards = page.locator(review_card_selector).all()
@@ -827,6 +833,8 @@ def send_answer(job_data: dict) -> dict:
         page.wait_for_timeout(10000)
         review_blocks = page.locator("div.aYDODrXf._9tLQnNX3")
         found = False
+        
+        
         for i in range(review_blocks.count()):
             review = review_blocks.nth(i)
             page.wait_for_timeout(2000)
