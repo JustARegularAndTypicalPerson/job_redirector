@@ -258,7 +258,7 @@ def main_loop() -> None:
             # jobs:queue:yandex:statistics → yandex, statistics
             if queue_name == "jobs:queue" or queue_name.endswith(":default"):
                 scraper_type = "gis"
-                operation_type = job_data.get("operation_type")
+                operation_type = job_data.get("operation_type", "send_answer")
             else:
                 parts = queue_name.split(":")
                 if len(parts) >= 4:
