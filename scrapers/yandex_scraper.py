@@ -692,42 +692,82 @@ def get_unreaded_reviews_part( page: Page, id: int) -> List[Tuple[str, Dict[str,
 
 
 
-def write_answer_part(page: Page, id : int, nickname: str, review_text : str, answer_text: str) -> str:
-    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
+def write_answer_part(page: Page, id: int, nickname: str, review_text: str, answer_text: str) -> str:
+    # 1. Go to the first page to find pagination info
+    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page=1&type=company")
     check_connection(page)
     if f"https://yandex.ru/sprav/{id}/p/edit/reviews/" not in page.url:
-        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/")
-    page.wait_for_timeout(3000)
-    unreaded_reviews = page.locator("div.ReviewsPage-ReviewsList").locator(":scope > *").all()
-    for unreaded_review in unreaded_reviews:
-        unreaded_review_nickname = unreaded_review.locator("div.Review-UserName").text_content()
-        try:
-            page.wait_for_selector("div.Review-Text > span", timeout=3000)
+        page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page=1&type=company")
+    page.wait_for_load_state('domcontentloaded')
 
-            # Scroll into view and click via JS
-            page.eval_on_selector(
-            ".Review-ReadMoreLink",
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-            )
-            
-            page.eval_on_selector(
-                ".Review-ReadMoreLink",
-                "el => el.click()"
-            )
-                
-        except Exception as e:
-            logger.warning(f"Failed to expand review text for nickname '{unreaded_review_nickname}': {e}", exc_info=True)
-        unreaded_review_review_text = unreaded_review.locator("div.Review-Text").text_content()
-        if unreaded_review_nickname.lower().strip() == nickname.lower().strip() and unreaded_review_review_text.lower().strip() == review_text.lower().strip():
-            unreaded_review.evaluate(
-            "el => el.scrollIntoView({behavior: 'auto', block: 'center'})"
-        )
-            unreaded_review.locator("textarea.ya-business-ui-textarea__control").fill(answer_text)
+    # 2. Get max number of pages from pagination, up to a limit of 15.
+    page_max_num = 1
+    try:
+        pagination_pages_locator = page.locator("div.Pagination-Pages")
+        if pagination_pages_locator.is_visible(timeout=5000):
+            page_numbers_text = pagination_pages_locator.locator("span.Pagination-Link").all_text_contents()
+            page_numbers = [int(num) for num in page_numbers_text if num.isdigit()]
+            if page_numbers:
+                page_max_num = max(page_numbers)
+    except Exception as e:
+        logger.warning(f"Could not determine max pages, will scan up to 15 pages. Error: {e}")
+        page_max_num = 15 # Fallback as per user request
 
-            page.wait_for_timeout(1000)
-            unreaded_review.locator("span.ya-business-yabs-button__icon").nth(0).click()
-            break
-    return "Answer written successfully or review not found."
+    pages_to_scan = min(15, page_max_num)
+    logger.info(f"Scanning up to {pages_to_scan} pages for the review.")
+
+    # 3. Loop through pages
+    for i in range(1, pages_to_scan + 1):
+        if i > 1: # No need to navigate to page 1 again
+            logger.info(f"Navigating to page {i}...")
+            page.goto(f"https://yandex.ru/sprav/{id}/p/edit/reviews/?ranking=by_time&page={i}&type=company")
+            page.wait_for_load_state('domcontentloaded')
+
+        reviews_list_locator = page.locator("div.ReviewsPage-ReviewsList")
+        reviews_list_locator.wait_for(state="visible", timeout=15000)
+        reviews = reviews_list_locator.locator("div.Review").all()
+        
+        for review in reviews:
+            review_nickname = ""
+            try:
+                review_nickname = (review.locator("div.Review-UserName").text_content() or "").strip()
+
+                read_more_link = review.locator("span.Review-ReadMoreLink")
+                if read_more_link.is_visible(timeout=500):
+                    read_more_link.click(timeout=2000)
+                    read_more_link.wait_for(state="hidden", timeout=5000)
+
+                review_body = (review.locator("div.Review-Text").text_content() or "").strip()
+
+                if review_nickname.lower() == nickname.lower().strip() and review_body.lower() == review_text.lower().strip():
+                    logger.info(f"Found matching review by '{nickname}'. Writing answer...")
+                    review.scroll_into_view_if_needed()
+                    
+                    answer_textarea = review.locator("textarea.ya-business-ui-textarea__control")
+                    if not answer_textarea.is_visible(timeout=3000):
+                        logger.warning("Answer textarea not found for the review. Maybe already answered.")
+                        continue
+
+                    answer_textarea.fill(answer_text)
+                    page.wait_for_timeout(500)
+                    
+                    send_button = review.locator("button.ya-business-yabs-button").first
+                    if not send_button.is_visible():
+                         logger.error("Send button not found for the review.")
+                         return "Send button not found."
+
+                    send_button.click()
+                    page.wait_for_timeout(2000)
+                    logger.info("Answer submitted successfully.")
+                    return "Answer written successfully"
+            except Exception as e:
+                logger.warning(f"Error processing a review for nickname '{review_nickname}': {e}", exc_info=True)
+                continue
+        
+        logger.info(f"Review not found on page {i}.")
+
+    logger.warning("Review not found after scanning all pages.")
+    return "review not found."
 
 
 def complain_about_a_review_part(page: Page, id : int, nickname: str, review_text : str, complain_text: str) -> str:
