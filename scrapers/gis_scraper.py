@@ -88,7 +88,10 @@ def handle_ads_by_clicking(page: Page) -> bool:
         "a:has-text('Пропустить')",
         "text=No Thanks", "text=Close",
         "div[class*='modal-close']", "div[data-keyword='close']", "div.wat-kit-image",
-        "div.content__close"
+        "div.content__close",
+        "div.content__close-3HuMC",
+        "div.content__close-3HuMC.undefined",
+        'div[data-keyword="close"][data-n="wat-kit-image"]'
     ]
 
     for sel in close_selectors:
@@ -145,6 +148,11 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
         results: List[Dict[str, Union[str, float, int]]] = []
         # Переходим на страницу отзывов для текущей компании
         page.goto(f"https://account.2gis.com/orgs/{digits}/reviews")
+        page_text = page.text_content("body")
+        if page_text and "Доступ запрещен" in page_text:
+            return {"result": "No-access"}
+        if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+            return {"result": "No-reviews"}
         handle_ads_by_clicking(page)
         # 1) Обнаружение "переключателя филиалов" (branch toggle)
         page.wait_for_timeout(2000) # Allow page to settle
@@ -308,6 +316,7 @@ def get_rating_and_reviews(page: Page, digits: str) -> List[Dict[str, Any]]:
                     # Ищем и кликаем по переключателю.
                     if not is_on_first:
                         page.locator(".mLSzlnkE").click()
+                        handle_ads_by_clicking(page)
                     else:
                         is_on_first = False
                     page.wait_for_timeout(500) # Небольшая задержка.
@@ -362,6 +371,11 @@ def _get_all_branch_review_urls(page: Page, digits: str) -> list[dict]:
     Uses the robust branch detection and scrolling logic from get_rating_and_reviews.
     """
     page.goto(f"https://account.2gis.com/orgs/{digits}/reviews")
+    page_text = page.text_content("body")
+    if page_text and "Доступ запрещен" in page_text:
+        return {"result": "No-access"}
+    if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+        return {"result": "No-reviews"}
     handle_ads_by_clicking(page)
     page.wait_for_timeout(2000)
     branches = []
@@ -374,6 +388,7 @@ def _get_all_branch_review_urls(page: Page, digits: str) -> list[dict]:
     if branches_exist:
         try:
             toggle.click()
+            handle_ads_by_clicking(page)
             page.wait_for_timeout(200)
         except PlaywrightError:
             branches_exist = False
@@ -437,6 +452,13 @@ def get_reviewss(page: Page, digits: str) -> List[Dict[str, Any]]:
         review_card_selector = "div.aYDODrXf._9tLQnNX3"
         load_more_button_selector = "button.button__basic-1agAe:has-text('Загрузить ещё')"
         max_attempts = 15
+        
+        page_text = page.text_content("body")
+        if page_text and "Доступ запрещен" in page_text:
+            return {"result": "No-access"}
+        if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+            return {"result": "No-reviews"}
+        
         for attempt in range(max_attempts):
             initial_review_count = page.locator(review_card_selector).count()
             page.wait_for_timeout(300)
@@ -576,6 +598,12 @@ def download_and_process_table(page: Page, digits: int, period: Optional[str] = 
             with page.expect_download(timeout=60000) as dl_info: # Таймаут до 60 секунд на загрузку.
                 try:
                     page.goto(f"https://account.2gis.com/orgs/{digits}/statistics/appearance", wait_until="domcontentloaded")
+
+                    page_text = page.text_content("body")
+                    if page_text and "Доступ запрещен" in page_text:
+                        return {"result": "No-access"}
+                    if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+                        return {"result": "No-reviews"}
                     handle_ads_by_clicking(page)
 
                     # 1. Click the date range picker display element
@@ -768,8 +796,7 @@ def get_statistics(job_data: dict) -> dict | None:
     with browser_context(headless=headless) as page:
         stats = download_and_process_table(page, target_id, period)
         if not stats:
-            logger.error(f"[get_statistics] No statistics data found for company ID {target_id}.")
-            raise ValueError(f"No statistics data found for company ID {target_id}.")
+            return  {"result": "No-statistics"}
         logger.info(f"[get_statistics] Scraping complete for target_id={target_id}")
         return stats
 
@@ -823,6 +850,11 @@ def send_answer(job_data: dict) -> dict:
     with browser_context(headless=headless) as page:
         url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id if branch_id else ''}"
         page.goto(url)
+        page_text = page.text_content("body")
+        if page_text and "Доступ запрещен" in page_text:
+            return {"result": "No-access"}
+        if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+            return {"result": "No-reviews"}
         handle_ads_by_clicking(page)
         page.wait_for_timeout(10000)
         review_blocks = page.locator("div.aYDODrXf._9tLQnNX3")
@@ -911,6 +943,11 @@ def complain_about_a_review(job_data: dict) -> dict:
         # 1) Navigate & clear any pop-ups
         url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id}"
         page.goto(url)
+        page_text = page.text_content("body")
+        if page_text and "Доступ запрещен" in page_text:
+            return {"result": "No-access"}
+        if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+            return {"result": "No-reviews"}
         handle_ads_by_clicking(page)
         page.wait_for_timeout(5000)
 

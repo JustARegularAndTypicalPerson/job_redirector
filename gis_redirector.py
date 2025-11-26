@@ -41,6 +41,9 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             raise ValueError(f"Unknown operation type: {operation_type}")
 
         is_empty = False
+        if result is dict:
+            if result.get("result"):
+                return {"status": result["result"], "result": result}
         if operation_type == "statistics":
             if result and not result.get("total_displays") and not result.get("daily_statistics"):
                 is_empty = True

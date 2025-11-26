@@ -309,6 +309,11 @@ def get_branch_statistics(page: Page, branch_id: int, period: str | None) -> Lis
     if f"https://yandex.ru/business/statistic/company/{branch_id}/audience" not in page.url :
         page.goto(f"https://yandex.ru/business/statistic/company/{branch_id}/audience")
     check_for_captcha(page)
+    page_text = page.text_content("body")
+    if page_text and "Нет доступа к организации" in page_text:
+        return {"result": "No-access"}
+    if page_text and "Отзывов пока нет" in page_text:
+        return {"result": "No-reviews"}
     Nikis_var = find_and_click_profile_link(page)
     if Nikis_var:
         pass
@@ -445,7 +450,11 @@ def get_company_statistic(page: Page, company_id: int, period: str | None) -> Li
     if f"https://yandex.ru/business/statistic/company/{company_id}/audience" not in   page.url  :
         page.goto(f"https://yandex.ru/business/statistic/company/{company_id}/audience")
     page.wait_for_timeout(15000)
-
+    page_text = page.text_content("body")
+    if page_text and "Нет доступа к организации" in page_text:
+        return {"result": "No-access"}
+    if page_text and "Отзывов пока нет" in page_text:
+        return {"result": "No-reviews"}
     check_for_captcha(page)
     Nikis_var = find_and_click_profile_link(page) # This might be different for company pages - Да нихуя,  там ищет элемент с таким же классом, а потом "профиль" так что вариант такой что вариантов нет
     if Nikis_var:
@@ -501,6 +510,13 @@ def get_branch_competitors(page: Page, branch_id: int) -> List[Tuple[str, Any]]:
     if   f"https://yandex.ru/business/competitors/company/{branch_id}" not in page.url:
         page.goto(f"https://yandex.ru/business/competitors/company/{branch_id}")
     check_for_captcha(page)
+
+    page_text = page.text_content("body")
+    if page_text and "Нет доступа к организации" in page_text:
+        return {"result": "No-access"}
+    if page_text and "Отзывов пока нет" in page_text:
+        return {"result": "No-reviews"}
+
     texts = get_child_texts(page, page.locator('div.company-competitors-table__own-company'))
     logger.debug(f"Own company competitor block texts: {texts}")
     if len(texts) < 6:
@@ -573,6 +589,13 @@ def _get_reviews(page: Page, target_id: int, page_num: int =1) -> dict:
     check_connection(page)
     if f"https://yandex.ru/sprav/{target_id}/p/edit/reviews/?ranking=by_time&page={page_num}&type=company" not in page.url:
         page.goto(f"https://yandex.ru/sprav/{target_id}/p/edit/reviews/?ranking=by_time&page={page_num}&type=company")
+
+    page_text = page.text_content("body")
+    if page_text and "Нет доступа к организации" in page_text:
+        return {"result": "No-access"}
+    if page_text and "Отзывов пока нет" in page_text:
+        return {"result": "No-reviews"}
+    
     page.wait_for_timeout(15000)
 
     num_of_reviews_text = page.locator("div.ReviewsPage-HeadingReviewsCount").text_content()
@@ -879,7 +902,7 @@ def get_statistics(job_data: dict) -> dict:
     with browser_context(headless=headless) as page:
         stats = get_branch_statistics(page, target_id, period)
         logger.info(f"[get_statistics] Scraping complete for target_id={target_id}")
-        return {"target_id": target_id, "statistics": stats}
+        return stats
 
 def get_competitors(job_data: dict) -> dict:
     target_id = job_data.get('target_id')
@@ -891,7 +914,7 @@ def get_competitors(job_data: dict) -> dict:
     with browser_context(headless=headless) as page:
         comps = get_branch_competitors(page, target_id)
         logger.info(f"[get_competitors] Scraping complete for target_id={target_id}")
-        return {"target_id": target_id, "competitors": comps}
+        return comps
 
 def get_reviews(job_data: dict) -> dict:
     target_id = job_data.get('target_id')
@@ -904,7 +927,7 @@ def get_reviews(job_data: dict) -> dict:
     with browser_context(headless=headless) as page:
         reviews = _get_reviews(page, target_id, page_num)
         logger.info(f"[get_reviews] Scraping complete for target_id={target_id}, page_num={page_num}")
-        return {"target_id": target_id, "reviews": reviews}
+        return reviews
     
 def get_unread_reviews(job_data: dict) -> dict:
     target_id = job_data.get('target_id')
@@ -916,7 +939,7 @@ def get_unread_reviews(job_data: dict) -> dict:
     with browser_context(headless=headless) as page:
         unreaded_reviews = get_unreaded_reviews_part(page, target_id)
         logger.info(f"[get_unreaded_reviews] Scraping complete for target_id={target_id}")
-        return {"target_id": target_id, "reviews": unreaded_reviews}
+        return unreaded_reviews
 
 
 def send_answer(job_data: dict) -> str:

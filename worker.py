@@ -258,7 +258,7 @@ def main_loop() -> None:
             # jobs:queue:yandex:statistics → yandex, statistics
             if queue_name == "jobs:queue" or queue_name.endswith(":default"):
                 scraper_type = "gis"
-                operation_type = job_data.get("operation_type", "send_answer")
+                operation_type = job_data.get("operation_type", "reviews")
             else:
                 parts = queue_name.split(":")
                 if len(parts) >= 4:
@@ -276,20 +276,10 @@ def main_loop() -> None:
             result_data = job_outcome.get("result")
             error_message = job_outcome.get("error_message", "")
 
-            # Map internal status to final job status in Redis
-            if internal_status == "success":
-                final_job_status = "completed"
-            elif internal_status in ["warning", "captcha_required", "failed"]:
-                final_job_status = internal_status
-            else:  # any other unknown status from redirector
-                final_job_status = "failed"
-                if not error_message:
-                    error_message = f"Job finished with unhandled internal status: {internal_status}"
-
             completion_payload = {
                 "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "status": final_job_status,
-                "result_data": json.dumps(result_data, ensure_ascii=False) if result_data is not None else None,
+                "status": internal_status,
+                "result_data": json.dumps(result_data, ensure_ascii=False) if result_data is not None else "None",
                 "error_message": str(error_message) if error_message is not None else ""
             }
 
