@@ -917,6 +917,95 @@ def send_answer(job_data: dict) -> dict:
                     raise RuntimeError(f"Failed to send answer: {e}")
         raise RuntimeError("Review not found for given review_id.")
 
+def complain_about_a_review(job_data: dict) -> dict:
+    """
+    Complain about a specific review on 2GIS.
+
+    Expects job_data to contain:
+      - target_id:       ID of the company/org
+      - branch_id:       ID of the branch (can be empty string)
+      - review_id:       data-review-id OR unique text snippet to identify the review
+      - review_text:     (optional) snippet of the review text
+      - review_date:     (optional) snippet of the review date
+      - reason_text:     text for the complaint
+      - headless:        bool, whether to run browser headless
+
+    Returns:
+      {"status": "success", "message": "Complaint sent successfully."}
+    """
+    company_id   = job_data.get("target_id")
+    branch_id    = job_data.get("branch_id", "")
+    review_name  = job_data.get("review_name")
+    review_text  = job_data.get("review_text", "")
+    review_date  = job_data.get("review_date", "")
+    reason = job_data.get("reason")
+    reason_text  = job_data.get("reason_text")
+    headless     = job_data.get("headless", False)
+
+    if not review_name or not reason_text:
+        raise ValueError("`review_id` (or unique text) and `reason_text` are required in job_data")
+
+    with browser_context(headless=headless) as page:
+        # 1) Navigate & clear any pop-ups
+        url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id}"
+        page.goto(url)
+        page_text = page.text_content("body")
+        if page_text and "Доступ запрещен" in page_text:
+            return {"result": "No-access"}
+        if page_text and "У компании ещё нет ни одного отзыва" in page_text:
+            return {"result": "No-reviews"}
+        handle_ads_by_clicking(page)
+        page.wait_for_timeout(5000)
+
+        # 2) Find the correct review block
+        review_blocks = page.locator("div.aYDODrXf._9tLQnNX3")
+        found = False
+        for i in range(review_blocks.count()):
+            review = review_blocks.nth(i)
+            # Try matching by data-review-id first
+            if review.get_attribute("data-review-id") == str(review_name):
+                found = True
+            else:
+                # Fallback: match by snippets of text & date
+                full_text = review.text_content() or ""
+                trimmed = full_text.replace("…", "")
+                if (review_name in full_text
+                    and ((not review_text or review_text in full_text) or review_text in trimmed)
+                    and (not review_date or review_date in full_text)):
+                    found = True
+
+            if not found:
+                continue
+
+            # 3) Click "Пожаловаться"
+            try:
+                complain_btn = review.locator("._5fRznqJ0")
+                complain_btn.click()
+                page.wait_for_timeout(500)
+            except PlaywrightError as e:
+                raise RuntimeError(f"Failed to open complaint dialog: {e}")
+
+            # 4) Fill reason & submit
+            try:
+                page.locator("div.select__select-9iHCB.select__default-3CL96.b-fAwQAz > div > div").click()
+
+                page.get_by_text(reason).click()
+
+                # Adjust selector if your complaint textarea lives elsewhere
+                textarea = page.locator("div.km7FyPog > textarea").first
+                textarea.fill(reason_text)
+                page.wait_for_timeout(200)
+
+                send_btn = page.get_by_text("Отправить", exact=True)
+                send_btn.click()
+                page.wait_for_timeout(1000)
+
+                return {"status": "success", "message": "Complaint sent successfully."}
+            except PlaywrightError as e:
+                raise RuntimeError(f"Failed to submit complaint: {e}")
+
+        # If we exit loop without finding the review
+        raise RuntimeError("Review not found for the given `review_id`/text snippet.")
 
 # Configuration
 TEMP_DIR = Path(r"C:\temp")
