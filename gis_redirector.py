@@ -36,6 +36,9 @@ def run_gis_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         elif operation_type == "mark_as_main":
             from scrapers.gis_scraper import mark_as_main
             result = mark_as_main(job_data)
+        elif operation_type == "post_picture":
+            from scrapers.gis_scraper import post_picture
+            result = post_picture(job_data)
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             raise ValueError(f"Unknown operation type: {operation_type}")

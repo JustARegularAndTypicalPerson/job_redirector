@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 import os
+import socket
 import tempfile
 from datetime import datetime, timezone
+import time
 from typing import Any, List, Dict, Optional, Union
+from urllib.parse import unquote, urlparse
 import pandas as pd
 from playwright.sync_api import Page, Download, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError, sync_playwright, BrowserContext
 import logging
 from contextlib import contextmanager
+
+import requests
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -911,92 +917,238 @@ def send_answer(job_data: dict) -> dict:
                     raise RuntimeError(f"Failed to send answer: {e}")
         raise RuntimeError("Review not found for given review_id.")
 
-def complain_about_a_review(job_data: dict) -> dict:
+
+# Configuration
+TEMP_DIR = Path(r"C:\temp")
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+DOWNLOAD_TIMEOUT = 15  # seconds (per request connect/read timeout)
+DOWNLOAD_RETRIES = 3
+RETRY_BACKOFF = 2  # multiplier
+CHUNK_SIZE = 32 * 1024
+MAX_BYTES = 200 * 1024 * 1024  # 200 MB limit
+ALLOWED_MIME_PREFIXES = ("image/", "video/")
+
+# Simple mapping from content-type to extension
+CT_TO_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+}
+
+
+# -------------------------
+# Utility helpers
+# -------------------------
+def _is_local_address(hostname: str) -> bool:
     """
-    Complain about a specific review on 2GIS.
-
-    Expects job_data to contain:
-      - target_id:       ID of the company/org
-      - branch_id:       ID of the branch (can be empty string)
-      - review_id:       data-review-id OR unique text snippet to identify the review
-      - review_text:     (optional) snippet of the review text
-      - review_date:     (optional) snippet of the review date
-      - reason_text:     text for the complaint
-      - headless:        bool, whether to run browser headless
-
-    Returns:
-      {"status": "success", "message": "Complaint sent successfully."}
+    Basic check: resolve hostname and see if it's local/private.
+    Not bulletproof but rejects common local ranges.
     """
-    company_id   = job_data.get("target_id")
-    branch_id    = job_data.get("branch_id", "")
-    review_name  = job_data.get("review_name")
-    review_text  = job_data.get("review_text", "")
-    review_date  = job_data.get("review_date", "")
-    reason = job_data.get("reason")
-    reason_text  = job_data.get("reason_text")
-    headless     = job_data.get("headless", False)
+    try:
+        for res in socket.getaddrinfo(hostname, None):
+            addr = res[4][0]
+            # IPv4 local ranges
+            if addr.startswith("10.") or addr.startswith("172.") or addr.startswith("192.168.") or addr.startswith("127.") or addr.startswith("169.254."):
+                return True
+            # IPv6 local/loopback
+            if addr == "::1" or addr.startswith("fe80") or addr.startswith("fc") or addr.startswith("fd"):
+                return True
+    except Exception:
+        # If resolution fails, be conservative and *not* treat as local
+        return False
+    return False
 
-    if not review_name or not reason_text:
-        raise ValueError("`review_id` (or unique text) and `reason_text` are required in job_data")
 
-    with browser_context(headless=headless) as page:
-        # 1) Navigate & clear any pop-ups
-        url = f"https://account.2gis.com/orgs/{company_id}/reviews/{branch_id}"
-        page.goto(url)
-        page_text = page.text_content("body")
-        if page_text and "Доступ запрещен" in page_text:
-            return {"result": "No-access"}
-        if page_text and "У компании ещё нет ни одного отзыва" in page_text:
-            return {"result": "No-reviews"}
-        handle_ads_by_clicking(page)
-        page.wait_for_timeout(5000)
+def _sanitize_extension_from_url(url: str) -> str:
+    """
+    Try to extract extension from URL path safely (strip query strings).
+    Returns extension including leading dot, or empty string.
+    """
+    parsed = urlparse(url)
+    path = unquote(parsed.path or "")
+    base = os.path.basename(path)
+    _, ext = os.path.splitext(base)
+    # clean extension (e.g., ".jpg" or "")
+    if ext and re.match(r"^\.[A-Za-z0-9]{1,6}$", ext):
+        return ext.lower()
+    return ""
 
-        # 2) Find the correct review block
-        review_blocks = page.locator("div.aYDODrXf._9tLQnNX3")
-        found = False
-        for i in range(review_blocks.count()):
-            review = review_blocks.nth(i)
-            # Try matching by data-review-id first
-            if review.get_attribute("data-review-id") == str(review_name):
-                found = True
-            else:
-                # Fallback: match by snippets of text & date
-                full_text = review.text_content() or ""
-                trimmed = full_text.replace("…", "")
-                if (review_name in full_text
-                    and ((not review_text or review_text in full_text) or review_text in trimmed)
-                    and (not review_date or review_date in full_text)):
-                    found = True
 
-            if not found:
+def _ext_from_content_type(ct: Optional[str]) -> str:
+    if not ct:
+        return ""
+    ct = ct.split(";")[0].strip().lower()
+    return CT_TO_EXT.get(ct, "")
+
+
+def _download_streaming(url: str, dst_tmp_path: Path) -> Dict[str, Optional[str]]:
+    """
+    Download file by streaming into dst_tmp_path. Returns metadata dict:
+      {"content_type": str, "bytes_written": int}
+    Raises exceptions on fatal errors.
+    """
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; scraper/1.0)"})
+    last_exc = None
+
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            with session.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT, allow_redirects=True) as resp:
+                resp.raise_for_status()
+
+                content_type = resp.headers.get("Content-Type", "")
+                # Quick content-type sanity
+                if not any(content_type.startswith(pref) for pref in ALLOWED_MIME_PREFIXES):
+                    # if server doesn't provide a content-type but file looks like binary, you may relax this.
+                    raise ValueError(f"Disallowed or missing Content-Type: {content_type!r}")
+
+                content_length = resp.headers.get("Content-Length")
+                if content_length and int(content_length) > MAX_BYTES:
+                    raise ValueError("Remote file too large (Content-Length)")
+
+                bytes_written = 0
+                # Stream to file
+                with open(dst_tmp_path, "wb") as out_f:
+                    for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
+                        if not chunk:
+                            continue
+                        out_f.write(chunk)
+                        bytes_written += len(chunk)
+                        if bytes_written > MAX_BYTES:
+                            out_f.close()
+                            try:
+                                os.remove(dst_tmp_path)
+                            except Exception:
+                                pass
+                            raise ValueError("Download exceeded maximum allowed size during streaming")
+
+                return {"content_type": content_type, "bytes_written": bytes_written}
+        except (requests.RequestException, requests.Timeout, ValueError) as e:
+            last_exc = e
+            logger.warning("Download attempt %d failed for %s: %s", attempt, url, e)
+            if attempt < DOWNLOAD_RETRIES:
+                time.sleep(RETRY_BACKOFF * attempt)
                 continue
+            raise
+    raise last_exc or RuntimeError("Failed to download file")
 
-            # 3) Click "Пожаловаться"
-            try:
-                complain_btn = review.locator("._5fRznqJ0")
-                complain_btn.click()
-                page.wait_for_timeout(500)
-            except PlaywrightError as e:
-                raise RuntimeError(f"Failed to open complaint dialog: {e}")
 
-            # 4) Fill reason & submit
-            try:
-                page.locator("div.select__select-9iHCB.select__default-3CL96.b-fAwQAz > div > div").click()
+# -------------------------
+# Main function
+# -------------------------
+def post_picture(job_data: dict) -> dict:
+    """
+    Post a picture on 2GIS.
+    """
 
-                page.get_by_text(reason).click()
+    # --- Validate input ---
+    company_id = job_data.get("target_id")
+    branch_id = job_data.get("branch_id")
+    picture_url = job_data.get("picture_url")
+    headless = job_data.get("headless", False)
 
-                # Adjust selector if your complaint textarea lives elsewhere
-                textarea = page.locator("div.km7FyPog > textarea").first
-                textarea.fill(reason_text)
-                page.wait_for_timeout(200)
+    if not company_id:
+        raise ValueError("`target_id` missing")
+    if not branch_id:
+        branch_id =str(int(company_id)+1)
+    if not picture_url:
+        raise ValueError("`picture_url` missing")
 
-                send_btn = page.get_by_text("Отправить", exact=True)
-                send_btn.click()
-                page.wait_for_timeout(1000)
+    # --- Build target URL ---
+    url = f"https://account.2gis.com/orgs/{company_id}/branches/{branch_id}/media"
+    logger.info(f"[post_picture] Navigating to {url}")
 
-                return {"status": "success", "message": "Complaint sent successfully."}
-            except PlaywrightError as e:
-                raise RuntimeError(f"Failed to submit complaint: {e}")
+    # --- Prepare download path ---
+    temp_folder = r"C:\temp"
+    os.makedirs(temp_folder, exist_ok=True)
 
-        # If we exit loop without finding the review
-        raise RuntimeError("Review not found for the given `review_id`/text snippet.")
+    # Extract clean extension (handles ?size=large etc)
+    parsed = urlparse(picture_url)
+    clean_path = parsed.path  # drop URL params
+    extension = os.path.splitext(clean_path)[1]
+    if not extension or len(extension) > 6:
+        extension = ".tmp"
+
+    temp_file_path = os.path.join(temp_folder, f"temp{extension}")
+    logger.info(f"[post_picture] Temp file: {temp_file_path}")
+
+    # --- Download file ---
+    try:
+        response = requests.get(
+            picture_url,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        response.raise_for_status()
+        with open(temp_file_path, "wb") as f:
+            f.write(response.content)
+        logger.info("[post_picture] File downloaded")
+    except Exception as e:
+        raise Exception("Download failed: {e}")
+
+    # --- Playwright flow ---
+    with browser_context(headless=headless) as page:
+
+        # Navigate and wait for base content
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
+
+        body_text = (page.text_content("body") or "").lower()
+
+        if "доступ запрещен" in body_text:
+            return {"status": "no-access"}
+        if "авторизация" in body_text or "войти" in body_text:
+            return {"status": "login-required"}
+        if "нет ни одного отзыва" in body_text:
+            return {"status": "no-reviews"}
+
+        # Remove ads/popups if your original function had it
+        try:
+            handle_ads_by_clicking(page)
+        except Exception as e:
+            logger.warning(f"[post_picture] Ads handler error: {e}")
+
+        page.wait_for_timeout(1500)
+
+        upload_button = page.locator("form.Uytl-ev- svg")
+        upload_button.wait_for(timeout=8000)
+    
+        label = page.locator("div:has-text('Все фото и видео')").nth(10)
+        label.wait_for(timeout=8000)
+        count_locator = label.locator("xpath=./following-sibling::div[1]")
+        initial_count = int(count_locator.text_content().strip())
+    
+        logger.info(f"[post_picture] Initial media count: {initial_count}")
+
+        # Open file chooser
+        with page.expect_file_chooser() as fc:
+            upload_button.click()
+
+        
+        file_chooser = fc.value
+        file_chooser.set_files(temp_file_path)
+
+        # Wait for upload request to be processed
+        page.wait_for_timeout(10000)
+
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_timeout(2000)
+
+        label = page.locator("div:has-text('Все фото и видео')").nth(10)
+        label.wait_for(timeout=8000)
+
+        final_count = int(count_locator.text_content().strip())
+        logger.info(f"[post_picture] Final media count: {final_count}")
+        if final_count <= initial_count:
+            raise Exception(
+                f"Upload failed: media count did not increase")
+
+        return {
+            "status": "success",
+            "message": "Picture posted successfully."
+        }
