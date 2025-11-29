@@ -27,14 +27,12 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
 
             
             return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
-            
 
         elif operation_type == "reviews":
             from scrapers.yandex_scraper import get_reviews
 
             result = get_reviews(job_data)
             return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
-
 
         elif operation_type == "competitors":
             from scrapers.yandex_scraper import get_competitors
@@ -43,8 +41,6 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
 
             return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
 
-
-
         elif operation_type == "unread_reviews":
             from scrapers.yandex_scraper import get_unread_reviews
 
@@ -52,8 +48,6 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
 
             return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
 
-
-            
         elif operation_type == "send_answer":
             from scrapers.yandex_scraper import send_answer
 
@@ -61,8 +55,8 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             if result is dict:
                 return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
 
-
             return {"status": "success", "result": result, "error_message": ""}
+        
         elif operation_type == "complain_about_a_review":
             from scrapers.yandex_scraper import complain_about_a_review
 
@@ -70,8 +64,8 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             if result is dict:
                 return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
 
-
             return {"status": "success", "result": result, "error_message": ""}
+        
         elif operation_type == "mark_as_read":
             from scrapers.yandex_scraper import mark_as_read
 
@@ -79,8 +73,17 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
             if result is dict:
                 return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
 
-
             return {"status": "success", "result": result, "error_message": ""}
+        
+        elif operation_type == "post_picture":
+            from scrapers.yandex_scraper import post_picture
+
+            result = post_picture(job_data)
+            if result is dict:
+                return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
+        
+            return {"status": "success", "result": result, "error_message": ""}
+        
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             

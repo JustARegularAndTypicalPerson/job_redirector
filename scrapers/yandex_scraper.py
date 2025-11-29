@@ -1,5 +1,7 @@
 import json
 from typing import Any, Dict, Tuple, List
+from urllib.parse import urlparse
+import requests
 from werkzeug.exceptions import HTTPException, NotFound, BadRequest, InternalServerError
 from playwright.sync_api import Page, Locator, sync_playwright, BrowserContext
 import regex  # Используем модуль regex вместо re
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Define a directory for persistent context.
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _persistent_context_dir = os.path.abspath(
-    os.path.join(_project_root, "organization_files")
+    os.path.join(_project_root, "organization_files_fire")
 )
 
 # Setup logging
@@ -853,6 +855,85 @@ def mark_as_readed_part(page: Page, id : int, nickname: str, review_text : str) 
             break
     return "Review marked as read successfully or review not found."
 
+PHOTO_SELECTOR = "button.MediaUploadButton_type_photo"
+VIDEO_SELECTOR = "button.MediaUploadButton_type_video"
+
+def choose_selector_by_extension(path: str) -> str:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File not found: {path}")
+
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext in {".jpg", ".jpeg", ".png", ".heic"}:
+        return PHOTO_SELECTOR
+
+    if ext in {".mp4", ".mov"}:
+        return VIDEO_SELECTOR
+
+    raise ValueError(f"Unsupported file extension: {ext}")
+
+def post_picture_part(page: Page, id : int, picture_url: str, category: str):
+    temp_folder = r"C:\temp"
+    os.makedirs(temp_folder, exist_ok=True)
+
+    # Extract clean extension (handles ?size=large etc)
+    parsed = urlparse(picture_url)
+    clean_path = parsed.path  # drop URL params
+    extension = os.path.splitext(clean_path)[1]
+    if not extension or len(extension) > 6:
+        extension = ".tmp"
+
+    temp_file_path = os.path.join(temp_folder, f"temp{extension}")
+    logger.info(f"[post_picture] Temp file: {temp_file_path}")
+
+    # --- Download file ---
+    try:
+        response = requests.get(
+            picture_url,
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        response.raise_for_status()
+        with open(temp_file_path, "wb") as f:
+            f.write(response.content)
+        logger.info("[post_picture] File downloaded")
+    except Exception as e:
+        raise Exception("Download failed: {e}")
+
+    page.goto(f"https://yandex.ru/sprav/{id}/p/edit/photos")
+    upload_button = page.locator(choose_selector_by_extension(temp_file_path))
+    
+    with page.expect_file_chooser() as fc:
+        upload_button.click()
+    
+    file_chooser = fc.value
+    file_chooser.set_files(temp_file_path)
+    page.wait_for_timeout(5000)
+
+    selector = 'div.MediaTile:has(div.MediaBadge_type_processing:has-text("На модерации"))'
+    locator = page.locator(selector)
+    if locator.count() <1:
+        raise Exception("The upload didn't succeed")
+    
+    if not category:
+        logger.info("There is a picture on moderation")
+        return
+    
+    locator.locator(".MediaTile-TagBadge").click()
+
+    selector = f'div.PhotoTags-Tag:has-text("{category}")'
+
+    locator = page.locator(selector)
+
+    # Guard clause
+    if locator.count() == 0:
+        raise ValueError(f"Tag '{category}' not found")
+
+    locator.first.wait_for(state="visible")
+    locator.first.click()
+
+    logger.info("There is a picture on moderation")
+
 @contextmanager
 def browser_context(headless: bool = False):
     """
@@ -866,7 +947,45 @@ def browser_context(headless: bool = False):
         logger.info(f"[browser_context] Starting Playwright (headless={headless})")
         playwright_instance = sync_playwright().start()
         browser_args = ["--start-minimized"]
-        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args)
+        browser = playwright_instance.chromium.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args,)
+        page = browser.new_page()
+        logger.info("[browser_context] Navigating to Yandex companies page")
+        page.goto("https://yandex.ru/sprav/companies")
+        yield page
+    finally:
+        if page and not page.is_closed():
+            try:
+                page.close()
+                logger.info("[browser_context] Page closed")
+            except Exception as e:
+                logger.warning(f"[browser_context] Exception during page close: {e}", exc_info=True)
+        if browser and hasattr(browser, 'close'):
+            try:
+                browser.close()
+                logger.info("[browser_context] Browser context closed")
+            except Exception as e:
+                logger.warning(f"[browser_context] Exception during browser_context close: {e}", exc_info=True)
+        if playwright_instance:
+            try:
+                playwright_instance.stop()
+                logger.info("[browser_context] Playwright stopped")
+            except Exception as e:
+                logger.warning(f"[browser_context] Exception during Playwright stop: {e}", exc_info=True)
+
+@contextmanager
+def firefox_browser_context(headless: bool = False):
+    """
+    Context manager for Playwright browser context setup and teardown.
+    Yields a new page object.
+    """
+    playwright_instance = None
+    browser: BrowserContext | None = None
+    page: Page | None = None
+    try:
+        logger.info(f"[browser_context] Starting Playwright (headless={headless})")
+        playwright_instance = sync_playwright().start()
+        browser_args = ["--start-minimized"]
+        browser = playwright_instance.firefox.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args,)
         page = browser.new_page()
         logger.info("[browser_context] Navigating to Yandex companies page")
         page.goto("https://yandex.ru/sprav/companies")
@@ -1015,3 +1134,24 @@ def mark_as_read(job_data: dict) -> str:
         mark_as_readed_part(page, target_id, nickname, review_text)
         logger.info(f"[mark_as_readed] Succesfull marked readed for target_id={target_id}")
         return f"[mark_as_readed] Succesfull marked readed for target_id={target_id}"
+    
+def post_picture(job_data: dict) -> str:
+    target_id = job_data.get('target_id')
+    if target_id is None:
+        logger.error("[post_picture] 'target_id' is required in job_data")
+        raise ValueError("'target_id' is required in job_data for post_picture.")
+    
+    picture_url = job_data.get('picture_url')
+    if picture_url is None:
+        logger.error("[post_picture] 'picture_url' is required in job_data")
+        raise ValueError("'picture_url' is required in job_data for post_picture.")
+    category = job_data.get('category')
+
+    headless = job_data.get('headless', False)
+
+    logger.info(f"[post_picture] Posting picture for target_id={target_id}")
+
+    with firefox_browser_context(headless=headless) as page:
+        post_picture_part(page, target_id, picture_url, category)
+        logger.info(f"[post_picture] Successfully posted picture for target_id={target_id}")
+        return f"[post_picture] Successfully posted picture for target_id={target_id}"
