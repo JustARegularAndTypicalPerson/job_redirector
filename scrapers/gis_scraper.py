@@ -1126,7 +1126,43 @@ def _download_streaming(url: str, dst_tmp_path: Path) -> Dict[str, Optional[str]
             raise
     raise last_exc or RuntimeError("Failed to download file")
 
-
+@contextmanager
+def firefox_browser_context(headless: bool = False):
+    """
+    Context manager for Playwright browser context setup and teardown.
+    Yields a new page object.
+    """
+    playwright_instance = None
+    browser: BrowserContext | None = None
+    page: Page | None = None
+    try:
+        logger.info(f"[browser_context] Starting Playwright (headless={headless})")
+        playwright_instance = sync_playwright().start()
+        browser_args = ["--start-minimized"]
+        browser = playwright_instance.firefox.launch_persistent_context(_persistent_context_dir, headless=headless, args=browser_args,)
+        page = browser.new_page()
+        logger.info("[browser_context] Navigating to Yandex companies page")
+        yield page
+    finally:
+        if page and not page.is_closed():
+            try:
+                page.close()
+                logger.info("[browser_context] Page closed")
+            except Exception as e:
+                logger.warning(f"[browser_context] Exception during page close: {e}", exc_info=True)
+        if browser and hasattr(browser, 'close'):
+            try:
+                browser.close()
+                logger.info("[browser_context] Browser context closed")
+            except Exception as e:
+                logger.warning(f"[browser_context] Exception during browser_context close: {e}", exc_info=True)
+        if playwright_instance:
+            try:
+                playwright_instance.stop()
+                logger.info("[browser_context] Playwright stopped")
+            except Exception as e:
+                logger.warning(f"[browser_context] Exception during Playwright stop: {e}", exc_info=True)
+                
 # -------------------------
 # Main function
 # -------------------------
@@ -1139,6 +1175,7 @@ def post_picture(job_data: dict) -> dict:
     company_id = job_data.get("target_id")
     branch_id = job_data.get("branch_id")
     picture_url = job_data.get("picture_url")
+    category = job_data.get("category")
     headless = job_data.get("headless", False)
 
     if not company_id:
@@ -1181,7 +1218,7 @@ def post_picture(job_data: dict) -> dict:
         raise Exception("Download failed: {e}")
 
     # --- Playwright flow ---
-    with browser_context(headless=headless) as page:
+    with firefox_browser_context(headless=headless) as page:
 
         # Navigate and wait for base content
         page.goto(url, wait_until="domcontentloaded")
@@ -1214,6 +1251,18 @@ def post_picture(job_data: dict) -> dict:
     
         logger.info(f"[post_picture] Initial media count: {initial_count}")
 
+        if category:
+            # Selector: find an <a> containing a div with the given text
+            selector = f'a.YbkPEGHG:has(div.GR-LD0hr:has-text("{category}"))'
+
+            locator = page.locator(selector)
+
+            if locator.count() == 0:
+                raise Exception(f"Category '{category}' not found")
+
+            # Click the category
+            locator.first.click()
+
         # Open file chooser
         with page.expect_file_chooser() as fc:
             upload_button.click()
@@ -1222,8 +1271,13 @@ def post_picture(job_data: dict) -> dict:
         file_chooser = fc.value
         file_chooser.set_files(temp_file_path)
 
-        # Wait for upload request to be processed
-        page.wait_for_timeout(10000)
+        if extension in [".mp4", ".mov"]:
+            wait_time_ms = 20000  # 20 seconds
+        else:
+            wait_time_ms = 10000  # 10 seconds
+
+        # Wait
+        page.wait_for_timeout(wait_time_ms)
 
         page.reload(wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
@@ -1235,7 +1289,7 @@ def post_picture(job_data: dict) -> dict:
         logger.info(f"[post_picture] Final media count: {final_count}")
         if final_count <= initial_count:
             raise Exception(
-                f"Upload failed: media count did not increase")
+                f"Upload failed: Media was rejected")
 
         return {
             "status": "success",

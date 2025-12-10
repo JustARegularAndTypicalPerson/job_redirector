@@ -910,13 +910,23 @@ def post_picture_part(page: Page, id : int, picture_url: str, category: str):
     file_chooser.set_files(temp_file_path)
     page.wait_for_timeout(5000)
 
-    selector = 'div.MediaTile:has(div.MediaBadge_type_processing:has-text("На модерации"))'
+    # Determine selector based on file extension
+    if extension in [".mp4", ".mov"]:
+        selector = 'div.MediaTile:has(div.MediaBadge_type_preprocessing:has-text("Обработка"))'
+    else:
+        selector = 'div.MediaTile:has(div.MediaBadge_type_processing:has-text("На модерации"))'
+
     locator = page.locator(selector)
-    if locator.count() <1:
+
+    if locator.count() < 1:
         raise Exception("The upload didn't succeed")
+
+    if not category or extension in [".mp4", ".mov"]:
+        logger.info("There is a media on moderation")
+        return
     
-    if not category:
-        logger.info("There is a picture on moderation")
+    if not category or extension == ".mp4" or extension == ".mov":
+        logger.info("There is a media on moderation")
         return
     
     locator.locator(".MediaTile-TagBadge").click()
@@ -932,7 +942,7 @@ def post_picture_part(page: Page, id : int, picture_url: str, category: str):
     locator.first.wait_for(state="visible")
     locator.first.click()
 
-    logger.info("There is a picture on moderation")
+    logger.info("There is a media on moderation")
 
 @contextmanager
 def browser_context(headless: bool = False):
