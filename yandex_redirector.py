@@ -84,6 +84,15 @@ def run_yandex_operation(job_id: str, job_data: dict) -> Dict[str, Any]:
         
             return {"status": "success", "result": result, "error_message": ""}
         
+        elif operation_type == "get_data":
+            from scrapers.yandex_scraper import get_chain_data
+
+            result = get_chain_data(job_data)
+            if result is dict:
+                return {"status": result.get("result", "success") if result is dict else "success", "result": result, "error_message": ""}
+
+            return {"status": "success", "result": result, "error_message": ""}
+        
         else:
             logger.error(f"Unknown operation '{operation_type}' for job {job_id}", extra={"job_id": job_id, "operation_type": operation_type})
             

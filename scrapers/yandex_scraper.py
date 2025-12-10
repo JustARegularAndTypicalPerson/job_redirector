@@ -1165,3 +1165,231 @@ def post_picture(job_data: dict) -> str:
         post_picture_part(page, target_id, picture_url, category)
         logger.info(f"[post_picture] Successfully posted picture for target_id={target_id}")
         return f"[post_picture] Successfully posted picture for target_id={target_id}"
+
+def get_chain_data(job_data:dict) -> dict:
+    target_id = job_data.get('target_id')
+    if target_id is None:
+        logger.error("[get_data] 'target_id' is required in job_data")
+        raise ValueError("'target_id' is required in job_data for post_picture.")
+    headless = job_data.get('headless', False)
+
+    logger.info(f"[get_data] Getting data for target_id={target_id}")
+
+    with firefox_browser_context(headless=headless) as page:
+        data = get_chain_data_part(page, target_id)
+        logger.info(f"[get_data] Successfully got data for target_id={target_id}")
+        return data
+    
+def get_chain_data_part(page: Page, target_id: int) -> dict:
+    page.goto(f"https://yandex.ru/sprav/chain/{target_id}")
+
+    extracted: dict = {}
+
+    # --- Logo ---
+    logo_locator = page.locator(".MediaAttach-Image_type_logo")
+    if logo_locator.count() > 0:
+        extracted["logo"] = logo_locator.first.get_attribute("src")
+
+    # --- All info rows ---
+    rows = page.locator(".ChainInfo-InfoRow")
+    count = rows.count()
+
+    if count == 0:
+        raise ValueError("No info rows (.ChainInfo-InfoRow) found")
+
+    for i in range(count):
+        row = rows.nth(i)
+
+        key_locator = row.locator("h4")
+        value_locator = row.locator("div.ya-business-label_level_text")
+
+        if key_locator.count() == 0 or value_locator.count() == 0:
+            continue
+
+        key = key_locator.inner_text().strip()
+        value = value_locator.inner_text().strip()
+
+        extracted[key] = value
+
+    # ---- Branches ----
+    page.goto(f"https://yandex.ru/sprav/chain/{target_id}/branches")
+
+    rows = page.locator(".BranchesList-CompanyRow")
+    if rows.count() == 0:
+        raise ValueError("No branches found")
+
+    extracted["branches"] = []
+
+    for i in range(rows.count()):
+        row = rows.nth(i)
+
+        # --- Logo ---
+        logo_locator = row.locator(".ya-business-geoadv-company-logo__logo-image")
+        logo = logo_locator.get_attribute("src") if logo_locator.count() > 0 else None
+
+        # --- Name ---
+        name_locator = row.locator(".CompanyInfoCard-CompanyName .ya-business-link__text")
+        name = name_locator.inner_text().strip() if name_locator.count() > 0 else None
+
+        # --- Branch ID from href ---
+        name_link = row.locator(".CompanyInfoCard-CompanyName")
+        href = name_link.get_attribute("href")
+        match = re.search(r"/sprav/(\d+)", href) if href else None
+        branch_id = match.group(1) if match else None
+
+        # --- Address ---
+        address_locator = row.locator(".CompanyInfoCard-CompanyAddress")
+        address = address_locator.inner_text().strip() if address_locator.count() > 0 else None
+
+        # --- Rubric ---
+        rubric_locator = row.locator(".CompanyInfoCard-CompanyRubrics")
+        rubric = rubric_locator.inner_text().strip() if rubric_locator.count() > 0 else None
+
+        # --- Rating ---
+        rating_locator = row.locator(".CompanyRowInList-ReviewsRating")
+        rating = rating_locator.inner_text().strip() if rating_locator.count() > 0 else None
+
+        # --- Reviews count ---
+        reviews_locator = row.locator(".CompanyRowInList-ReviewsCount")
+        reviews_text = reviews_locator.inner_text().strip("() ") if reviews_locator.count() > 0 else None
+        reviews = int(reviews_text) if reviews_text and reviews_text.isdigit() else None
+
+        # --- Status ---
+        status_locator = row.locator(".StatusLabel-TextInner")
+        status = status_locator.inner_text().strip() if status_locator.count() > 0 else None
+
+        # --- Сетевая company (has website link) ---
+        website_locator = row.locator(".CompanyInfoCard-CompanyUrl")
+        is_network = website_locator.count() > 0
+
+        # --- Final entry ---
+        extracted["branches"].append({
+            "Лого": logo,
+            "Название": name,
+            "id": branch_id,
+            "Адрес": address,
+            "Рубрика": rubric,
+            "Рейтинг": rating,
+            "Количество_отзывов": reviews,
+            "Статус": status,
+            "Сетевая": is_network
+        })
+
+    for branch in extracted["branches"]:
+        branch_id = branch.get("id")
+
+        # --- Guard clauses ---
+        if not branch_id:
+            continue
+
+        page.goto(f"https://yandex.ru/sprav/{branch_id}/p/edit/")
+        page.wait_for_selector(".CompanyInfo", timeout=10_000)
+
+        root = page.locator(".CompanyInfo")
+        if root.count() == 0:
+            continue
+
+        # --- Extract advanced fields ---
+        work_status_el = page.locator(".InfoWorkIntervals-StatusWrapper .ya-business-select__button-content")
+        work_status = work_status_el.inner_text().strip() if work_status_el.count() > 0 else ""
+
+        work_time_el = page.locator(".WorkIntervalsUnificationInput-Input input")
+        work_time = work_time_el.get_attribute("value") if work_time_el.count() > 0 else ""
+
+        website = ""
+
+        website_inputs = page.locator(".InfoUrls-InputWrapper_type_site input")
+
+        # Guard clause — nothing found
+        if website_inputs.count() == 0:
+            website = ""
+        else:
+            # Take the first non-empty value
+            for i in range(website_inputs.count()):
+                val = website_inputs.nth(i).get_attribute("value") or ""
+                if val.strip():
+                    website = val.strip()
+                    break
+
+        phones = []
+
+        phone_inputs = page.locator(".PhoneControl-PhoneInput input")
+
+        for i in range(phone_inputs.count()):
+            val = phone_inputs.nth(i).get_attribute("value") or ""
+            if val.strip():
+                phones.append(val.strip())
+
+        emails = []
+
+        email_inputs = page.locator(".InfoEmails-Input input")
+
+        for i in range(email_inputs.count()):
+            val = email_inputs.nth(i).get_attribute("value") or ""
+            if val.strip():
+                emails.append(val.strip())
+
+        # --- Names ---
+        names = {}
+
+        # --- RU ---
+        ru_inputs = page.locator(".InfoNames-Row_locale_ru input")
+        if ru_inputs.count() > 0:
+            names["ru"] = ru_inputs.nth(0).get_attribute("value") or ""
+        if ru_inputs.count() > 1:
+            names["ru_short"] = ru_inputs.nth(1).get_attribute("value") or ""
+
+        # --- EN ---
+        en_inputs = page.locator(".InfoNames-Row_locale_en input")
+        if en_inputs.count() > 0:
+            names["en"] = en_inputs.nth(0).get_attribute("value") or ""
+        if en_inputs.count() > 1:
+            names["en_short"] = en_inputs.nth(1).get_attribute("value") or ""
+
+        # --- Regions ---
+        regions = []
+        region_items = page.locator('[data-name="multiselect-region-item"]')
+        if region_items.count() > 0:
+            for i in range(region_items.count()):
+                text = region_items.nth(i).locator("div").first.inner_text().strip()
+                if text:
+                    regions.append(text)
+
+        # --- Rubrics ---
+        main_rubric = ""
+        main_rubric_el = page.locator('input[name="main-rubric"]')
+        if main_rubric_el.count() > 0:
+            main_rubric = main_rubric_el.get_attribute("value") or ""
+
+        secondary_rubrics = []
+        sec_items = page.locator('[data-name="multiselect-secondary-rubric-item"]')
+        if sec_items.count() > 0:
+            for i in range(sec_items.count()):
+                txt = sec_items.nth(i).locator("div").first.inner_text().strip()
+                if txt:
+                    secondary_rubrics.append(txt)
+
+        # --- Features ---
+        features = []
+        feat_items = page.locator(".ReadOnlyFeature")
+        if feat_items.count() > 0:
+            for i in range(feat_items.count()):
+                txt = feat_items.nth(i).inner_text().strip()
+                if txt:
+                    features.append(txt)
+
+        # ✅ Merge into existing branch, NOT append
+        branch.update({
+            "work_status": work_status,
+            "work_time": work_time,
+            "website": website,
+            "phone": phones,
+            "email": emails,
+            "names": names,
+            "regions": regions,
+            "main_rubric": main_rubric,
+            "secondary_rubrics": secondary_rubrics,
+            "features": features
+        })
+
+    return extracted
