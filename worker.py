@@ -141,16 +141,33 @@ def is_worker_forbidden() -> bool:
     return redis_client.sismember(FORBIDDEN_WORKERS_SET, WORKER_ID)
 
 
-def recover_interrupted_jobs() -> None:
-    processing_queue_key: str = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
-    if redis_client.llen(processing_queue_key) == 0:
-        logger.info("No interrupted jobs to recover.")
-        return
-    logger.warning(f"Found interrupted job(s) in {processing_queue_key}. Re-queueing...")
-    while (job_id := redis_client.rpoplpush(processing_queue_key, JOB_QUEUE_KEY)):
-        logger.info(f"Re-queued job {job_id}.")
-    logger.warning("Recovery complete.")
+def delete_interrupted_jobs() -> None:
+    processing_queue_key = f"{PROCESSING_QUEUE_PREFIX}{WORKER_ID}"
 
+    job_ids = redis_client.lrange(processing_queue_key, 0, -1)
+    if not job_ids:
+        logger.info("No interrupted jobs to delete.")
+        return
+
+    logger.critical(
+        f"Deleting {len(job_ids)} interrupted job(s) from {processing_queue_key}"
+    )
+
+    for job_id in job_ids:
+        job_hash_key = f"{JOB_HASH_PREFIX}{job_id}"
+        try:
+            redis_client.hset(job_hash_key, mapping={
+                "status": "failed",
+                "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "error_message": "Worker terminated; job was force-deleted"
+            })
+        except redis.exceptions.RedisError:
+            pass  # job hash may not exist, ignore
+
+    # Delete the processing queue entirely
+    redis_client.delete(processing_queue_key)
+
+    logger.critical("Interrupted jobs deleted permanently.")
 
 def execute_job(job_id: str, job_data: dict) -> dict:
     """
@@ -338,7 +355,7 @@ signal.signal(signal.SIGINT, handle_sigterm)
 
 if __name__ == "__main__":
     try:
-        recover_interrupted_jobs()
+        delete_interrupted_jobs()
         # gis_scraper.get_reviews({"target_id": 70000001040930142})  # Ensure GIS scraper is initialized
         main_loop()
     except Exception as e:

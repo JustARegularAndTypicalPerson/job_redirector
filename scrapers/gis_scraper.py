@@ -1295,3 +1295,86 @@ def post_picture(job_data: dict) -> dict:
             "status": "success",
             "message": "Picture posted successfully."
         }
+    
+from playwright.sync_api import sync_playwright
+from typing import Dict, Any, List
+
+
+def get_data(job_data: dict) -> dict:
+    company_id = job_data.get("target_id")
+    if not company_id:
+        raise ValueError("target_id is required")
+
+    headless = bool(job_data.get("headless", False))
+
+    url = f"https://account.2gis.com/orgs/{company_id}/branches/"
+
+    result: Dict[str, Any] = {
+        "company_id": company_id,
+        "address": None,
+        "inn": None,
+        "is_main_branch": False,
+        "categories": [],
+        "phones": [],
+        "website": None,
+        "telegram": None,
+        "socials": [],
+        "work_time": None,
+        "branch_status": None,
+    }
+
+    with browser_context(headless=headless) as page:
+
+        page.goto(url, wait_until="networkidle")
+
+        # ---------- Address ----------
+        locator = page.locator(".CQydym6f").nth(2)
+        result["address"] = locator.inner_text()
+
+        # ---------- INN ----------
+        inn_locator = page.locator("text=ИНН:")
+        if inn_locator.count():
+            inn_text = inn_locator.first.inner_text()
+            result["inn"] = "".join(filter(str.isdigit, inn_text))
+
+        # ---------- Main branch ----------
+        result["is_main_branch"] = page.locator("text=Главный филиал").count() > 0
+
+        # ---------- Categories ----------
+        category_section = page.locator("#privateLayout > div.vyTUM9ux > div > div.F7QuCy7T > div:nth-child(1) > div > div:nth-child(5) > div.XLpTtjfs.surface-01")
+        if category_section.count():
+            spans = category_section.locator("span").all_inner_texts()
+            result["categories"] = list({
+                s.strip()
+                for s in spans
+                if s and len(s) < 60 and not s.startswith("Добавить")
+            })
+
+        # ---------- Phones ----------
+        phone_blocks = page.locator("#privateLayout > div.vyTUM9ux > div > div.F7QuCy7T > div:nth-child(1) > div > div:nth-child(6) > div.sP1QgmYk > div:nth-child(1) > div > div.m7dDhrbG > div > div > div.wkjaALol.regular._1gJhQmui")
+        for i in range(phone_blocks.count()):
+            text = phone_blocks.nth(i).inner_text().strip()
+            if "+" in text:
+                result["phones"].append(text)
+
+        # ---------- Website ----------
+        website_locator = page.locator("text=.site")
+        if website_locator.count():
+            result["website"] = website_locator.first.inner_text().strip()
+
+        # ---------- Telegram ----------
+        tg_locator = page.locator("text=t.me/")
+        if tg_locator.count():
+            result["telegram"] = tg_locator.first.inner_text().strip()
+
+        # ---------- Branch status ----------
+        if page.locator("text=Филиал работает").count():
+            result["branch_status"] = "open"
+        elif page.locator("text=временно не работает").count():
+            result["branch_status"] = "closed"
+
+    # ---------- Normalize ----------
+    result["phones"] = list(set(result["phones"]))
+    result["socials"] = list(set(result["socials"]))
+
+    return result
