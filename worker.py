@@ -304,7 +304,6 @@ def main_loop() -> None:
             logger.info(f"Finished job {job_id} with status: {completion_payload['status']}")
             redis_client.lrem(processing_queue_key, 1, job_id)
 
-            recover_interrupted_jobs()
         except redis.exceptions.RedisError as e:
             logger.error(f"Redis error: {e}. Will retry connection in 5 seconds.", exc_info=True)
             time.sleep(5)
