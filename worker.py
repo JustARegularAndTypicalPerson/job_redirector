@@ -1,5 +1,15 @@
 # main.py
 import os
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from worker_config import load_worker_config
+
+CONFIG = load_worker_config()
 import sys
 import time
 import json
@@ -19,8 +29,8 @@ from scrapers import gis_scraper
 try:
     from logtail import LogtailHandler
 
-    LOGTAIL_TOKEN = os.environ.get("LOGTAIL_TOKEN", "9MH3pdR6MXAidoMv7KHJT7b9")
-    INGESTION_HOST = os.environ.get("INGESTION_HOST", "https://s1355760.eu-nbg-2.betterstackdata.com")
+    LOGTAIL_TOKEN = CONFIG.logtail_token
+    INGESTION_HOST = CONFIG.ingestion_host
     if LOGTAIL_TOKEN:
         logtail_handler = LogtailHandler(source_token=LOGTAIL_TOKEN,host=INGESTION_HOST)
         BETTERSTACK_HANDLER = logtail_handler
@@ -82,8 +92,8 @@ root_logger.addHandler(console_handler)
 # Use module-level logger for this file
 logger = logging.getLogger(__name__)
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://34.60.28.143:6379/0")
-REDIS_PASSWORD = "N7r$5pX@f9vZq2!Lb9#T9iha967aY*&^)@!^"
+REDIS_URL = CONFIG.redis_url
+REDIS_PASSWORD = CONFIG.redis_password
 JOB_QUEUE_KEY = "jobs:queue"
 JOB_HASH_PREFIX = "job:"
 DEAD_LETTER_QUEUE_KEY = "jobs:dead-letter"

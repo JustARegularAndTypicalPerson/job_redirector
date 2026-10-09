@@ -9,3 +9,16 @@
 !worker.py
 !yandex_redirector.py
 .worker_id
+/.env
+/.env.*
+!/.env.example
+!README.md
+!worker_config.py
+!tests/
+!tests/**
+**/__pycache__/
+**/*.py[cod]
+/organization_files/
+/organizations_files/
+**/organization_files/
+**/organizations_files/
